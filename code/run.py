@@ -61,8 +61,7 @@ def setup_enviroment(args: argparse.Namespace, output_dir: str) -> Environment:
     return env 
 
 
-def run_algorithms(algorithms: list, settings: Settings,\
-                                     env: Environment, outputDir: str) -> None:
+def run_algorithms(algorithms: list, settings: Settings, env: Environment, outputDir: str) -> None:
     solutions = {}
     
     for algorithm in algorithms:
@@ -142,8 +141,8 @@ if __name__ == '__main__':
             'allocationmodel': AllocationModel,
     }
     
-    run_from_command_line()
-    #run_example(problem_path='../dataset/000.json', algorithm=registry['balcon'], time_limit=60, wa=1, wm=2)
+    # run_from_command_line()
+    run_example(problem_path='./data/synthetic/8th-numa.json', algorithm=registry['balcon'], time_limit=60, wa=1, wm=2)
 
 
 

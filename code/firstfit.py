@@ -34,9 +34,10 @@ class FirstFit(Algorithm):
         asg.clear()
 
         for vmid in self.sorted_vmids:
+            a = np.flatnonzero(asg.is_feasible_nh(vmid))
             for hid in np.flatnonzero(asg.is_feasible_nh(vmid)):
                 asg.include(vmid, hid)
                 break
-            if not asg.is_assigned(vmid) or self.tl.exceeded():
-                return self.env.mapping
+            if not asg.is_assigned(vmid):
+                continue
         return asg.get_solution()

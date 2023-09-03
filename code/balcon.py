@@ -36,13 +36,15 @@ class Stash:
             self.add_vmid(vmid)
 
     def add_vmid(self, vmid) -> None:
+        # 根据虚机得分加入最大堆
         heapq.heappush(self.vmids, (self.asg.size_nv[vmid], vmid))
-        self.form += self.asg.required_nv_nr[vmid]
+        # stack中的总资源
+        self.form += self.asg.required_nv_nr_all[vmid]
 
     def pop(self) -> int:
         """ Remove largest VM from the stash and return its index """
         _, vmid = heapq.heappop(self.vmids)
-        self.form -= self.asg.required_nv_nr[vmid]
+        self.form -= self.asg.required_nv_nr_all[vmid]
         return vmid
 
     def get_form(self) -> np.array:
@@ -102,7 +104,9 @@ class ForceFit:
         self.force_steps_counter = 0
         while not stash.is_empty():
             vmid = stash.pop()
+            # 根据比值分类
             situation = self.classify(hids, stash, vmid)
+            # stack中有虚机就必须force迁移到下一台宿主机上，凭什么？不能迁移到其他宿主机上嘛？这和宿主机的排序关联关系很大，以及和宿主机上虚机的规格关联也很大
             if situation == Situation.IMPOSSIBLE:
                 return False
             elif situation == Situation.AMPLE:
@@ -113,7 +117,9 @@ class ForceFit:
                     return False
                 hids_filtered = self.filter_hosts(vmid, hids)
                 if situation == Situation.BALANCED:
+                    # 拥有最多的规格小于该虚机的宿主机
                     hid = self.choose_hid_balanced(vmid, hids_filtered)
+                    # 连续两次都选同一host_id则换其他的
                     hid = prohibitor.forbid_long_repeats(hids_filtered, hid)
                     vmids = self.choose_vmids_balanced(hid)
                 else:
@@ -125,15 +131,17 @@ class ForceFit:
         return stash.is_empty()
 
     def classify(self, hids: List[int], stash: Stash, vmid: int) -> Situation:
+        # 有宿主机可以覆盖虚机
         if np.any(self.asg.is_feasible_nh(vmid)[hids]):
             return Situation.AMPLE
 
+        # 宿主机的规格要大于虚机才行
         hids_filtered = self.filter_hosts(vmid, hids)
         if len(hids_filtered) == 0:
             return Situation.IMPOSSIBLE
 
-        f_nr = stash.get_form() + self.asg.required_nv_nr[vmid]
-        rem_nh_nr = self.asg.remained_nh_nr[hids]
+        f_nr = stash.get_form() + self.asg.required_nv_nr_all[vmid]
+        rem_nh_nr = np.sum(self.asg.remained_nh_nr[hids], axis=1)
         capacity = np.sum(np.amin(rem_nh_nr / f_nr, axis=1))
         potential_capacity = np.amin(np.sum(rem_nh_nr, axis=0) / f_nr)
 
@@ -147,7 +155,7 @@ class ForceFit:
     def select_tightest_hid(self, hids: np.array) -> int:
         load_nh = np.sum(
                 self.asg.occupied_nh_nr[hids] / self.asg.capacity_nh_nr[hids],
-                axis=1
+                axis=(1, 2)
         )
         return hids[np.argmax(load_nh)]
 
@@ -159,8 +167,10 @@ class ForceFit:
 
     def count_smaller_vms_nh(self, vmid: int, hids: np.array) -> np.array:
         size = self.asg.size_nv[vmid]
+        # 找到得分比这台虚机小的
         smaller_vmids = self.asg.vmids[(self.asg.size_nv <= size) &
                                        (self.asg.mapping != -1)]
+        # 计算这些虚机在哪台宿主机上数量最多
         count = np.bincount(self.asg.mapping[smaller_vmids])
         result = np.zeros(max(hids) + 1)
         result[:count.size] = count
@@ -179,7 +189,7 @@ class ForceFit:
 
         # all hosts have the same tan as VM
         free_nh_nr = self.asg.remained_nh_nr[hids] / self.asg.capacity_nh_nr[hids]
-        free_nh = np.sum(free_nh_nr, axis=1)
+        free_nh = np.sum(free_nh_nr, axis=(1, 2))
         idx = np.argmax(free_nh)
         return hids[idx]
 
@@ -187,16 +197,18 @@ class ForceFit:
         """ Filter hosts that can't host the VM in any case """
         mask = np.all(
                 self.asg.capacity_nh_nr[hids] >= self.asg.required_nv_nr[vmid],
-                axis=1
+                axis=(1, 2)
         )
         return np.array(hids)[mask]
 
     def choose_hid_lopsided_rid(self, vmid: int, hids: np.array, rid: int) -> Optional[int]:
         arid = (rid + 1) % 2
-        tan_vm = self.asg.required_nv_nr[vmid, rid] / self.asg.required_nv_nr[vmid, arid]
-        tan_nh = self.asg.occupied_nh_nr[hids, rid] / self.asg.occupied_nh_nr[hids, arid]
-        free_nh = self.asg.remained_nh_nr[hids, rid] / self.asg.capacity_nh_nr[hids, rid]
+        tan_vm = self.asg.required_nv_nr_all[vmid, rid] / self.asg.required_nv_nr_all[vmid, arid]
+        tan_nh = np.sum(self.asg.occupied_nh_nr, axis=1)[hids, rid] / np.sum(self.asg.occupied_nh_nr, axis=1)[hids, arid]
+        free_nh = np.sum(self.asg.remained_nh_nr, axis=1)[hids, rid] / np.sum(self.asg.capacity_nh_nr, axis=1)[hids, rid]
+        # 需要宿主机的角度小于虚机角度，这样两者相加可以得到更偏中间的角度。（那如果这个宿主机已经是中间了呢？还需要迁移虚机？是不是可以吧这个作为不强制迁移的一个指标）
         free_nh[~(tan_nh < tan_vm)] = -1
+        # 找到符合要求宿主机中，相对剩余目标资源最多的宿主机
         idx = np.argmax(free_nh)
         if free_nh[idx] >= 0:
             return hids[idx]
@@ -204,16 +216,18 @@ class ForceFit:
 
     def choose_vmids_lopsided(self, hid: int, in_vmid: int) -> np.array:
         vmids = self.asg.get_vmids_on_hid(hid)
-        tan_in_vm = tan(self.asg.required_nv_nr[in_vmid])
-        tan_host = tan(self.asg.occupied_nh_nr[hid])
-        tan_nv = self.asg.required_nv_nr[:, 0] / self.asg.required_nv_nr[:, 1]
+        # 这些角度其实都需要先除以host的capacity，形成比例之后再进行对比
+        tan_in_vm = tan(self.asg.required_nv_nr_all[in_vmid])
+        tan_host = tan(np.sum(self.asg.occupied_nh_nr, axis=1)[hid])
+        tan_nv = self.asg.required_nv_nr_all[:, 0] / self.asg.required_nv_nr_all[:, 1]
 
+        # 先if判断in_vm和host之间的角度关系，这里的firstKey虚机选择好像和论文里面讲的是反的
         first_key = \
             tan_nv[vmids] >= tan_in_vm \
                 if tan_in_vm > tan_host else \
                 tan_nv[vmids] <= tan_in_vm
         second_key = (self.asg.init_mapping == self.asg.mapping)[vmids]
-        third_key = self.asg.required_nv_nr[vmids, 1]
+        third_key = self.asg.required_nv_nr_all[vmids, 1]
         return vmids[np.lexsort((third_key, second_key, first_key))]
 
     def choose_hid_balanced(self, vmid: int, hids: np.array) -> int:
@@ -224,7 +238,7 @@ class ForceFit:
     def choose_vmids_balanced(self, hid: int) -> np.array:
         vmids = self.asg.get_vmids_on_hid(hid)
         first_key = (self.asg.init_mapping == self.asg.mapping)[vmids]
-        second_key = self.asg.required_nv_nr[vmids, 1]
+        second_key = self.asg.required_nv_nr_all[vmids, 1]
         return vmids[np.lexsort((second_key, first_key))]
 
     def push_vmid(self, in_vmid: int, hid: int, vmids: np.array) -> np.array:
@@ -234,6 +248,8 @@ class ForceFit:
             ejected_vmids.append(vmid)
             if self.asg.is_feasible(in_vmid, hid): break
 
+        if not np.all(self.asg.occupied_nh_nr > 0):
+            a = 5
         self.asg.include(in_vmid, hid)
 
         residue = list()
@@ -250,21 +266,24 @@ class BalCon(Algorithm):
 
     def __init__(self, env: Environment, settings: Settings) -> None:
         super().__init__(env, settings)
+        # 计算host和vm的资源
         self.asg = Assignment(env, settings)
         self.placer = ForceFit(self.asg, max_force_steps=settings.max_force_steps)
         self.debug = False
         self.coin = Coin()
-        self.initial_memory_nh = self.asg.occupied_nh_nr[:, 1].copy()
+        # 宿主机已占用内存
+        self.initial_memory_nh = np.sum(self.asg.occupied_nh_nr, axis=1)[:, 1].copy()
 
     def clear_host(self, hid: int) -> np.array:
         vmids = self.asg.get_vmids_on_hid(hid)
         for vmid in vmids:
+            # 将vm的mapping设置为-1，相当于加入stack。然后重新计算宿主机上的已占用和剩余资源
             self.asg.exclude(vmid)
         return vmids
 
     def choose_hid_to_try(self, hids: np.array) -> int:
         first_key = self.initial_memory_nh[hids]
-        second_key = self.asg.occupied_nh_nr[hids, 1]
+        second_key = np.sum(self.asg.occupied_nh_nr, axis=1)[hids, 1]
         return hids[np.lexsort((second_key, first_key))[0]]
 
     def log_result(self, result: AttemptResult, hid: int) -> None:
@@ -273,17 +292,21 @@ class BalCon(Algorithm):
                  f'{result}')
 
     def solve_(self) -> Mapping:
+        # 可选择的目标宿主机id
         allowed_hids = list(self.asg.hids)
+        # 未尝试关机的宿主机id
         hosts_to_try = list(self.asg.hids)
 
         while hosts_to_try and not self.tl.exceeded():
             self.asg.backup()
             score = self.asg.compute_score()
-
+            # 根据内存进行排序
             hid = self.choose_hid_to_try(hosts_to_try)
             hosts_to_try.remove(hid)
             allowed_hids.remove(hid)
+            # 把选择的宿主机清空虚机，放到stack里面
             vmids = self.clear_host(hid)
+            # 在可选择的目标宿主机上放置虚机
             if self.placer.place_vmids(vmids, allowed_hids):
                 result = AttemptResult.SUCCESS
                 if self.asg.compute_score() > score:
