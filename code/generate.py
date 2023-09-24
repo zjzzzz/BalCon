@@ -70,6 +70,7 @@ def generate_instance(n_vms: int, rng: Generator) -> Environment:
     """ Generate problem instances with heavy resource imbalance """
     vms = generate_vms(n_vms, rng)
     cpu, mem = determine_host_size(vms)
+    # cpu, mem = HOST_SIZE[0], HOST_SIZE[1]
     hosts = [Host(cpu, mem, HOST_NUMA) for _ in range(n_vms)]
 
     env = Environment(hosts=hosts, vms=vms, mapping=Mapping.emtpy(n_vms, [vm.numa for vm in vms]))
@@ -93,9 +94,9 @@ def generate_synthetic_dataset(n_instances: int, path: str) -> None:
         n_vms = rng.integers(N_VMS_RANGE[0], N_VMS_RANGE[1] + 1)
         env = generate_instance(n_vms=n_vms, rng=rng)
         n_vms = len(env.vms)
-        problem_path = path / f'{i}th-numa.json'
+        problem_path = path / f'test-numa.json'
         env.save(problem_path)
 
 
 if __name__ == '__main__':
-    generate_synthetic_dataset(10, './data/synthetic')
+    generate_synthetic_dataset(1, './data/synthetic')

@@ -17,6 +17,7 @@ class Solution:
     migration_score: Optional[float] = None  # is the amount of migrated memory in the solution
     status: Optional[str] = None
     elapsed: float = 0
+    flavor_nums: Optional[int] = None  # is the number of flavor in the solution
 
     def save(self, path) -> None:
         with open(path, 'w') as fd:
@@ -54,6 +55,11 @@ class Score:
             solution.savings_score = len(active_hosts)
         return solution.savings_score
 
+    def flavor_nums(self, solution: Solution, asg: Assignment, target_flavor: VM) -> int:
+        flavor_num = asg.fill(asg.hids, target_flavor)
+        solution.flavor_nums = flavor_num
+        return solution.flavor_nums
+
     def repr_savings_score(self, solution) -> str:
         initial_solution = Solution(mapping=self.env.mapping)
         A_init = self.savings_score(initial_solution)
@@ -66,9 +72,11 @@ class Score:
         if solution.mapping is not None:
             mem_moved_mb = 0
             for vmid, vm in enumerate(self.env.vms):
-                src_hid = self.env.mapping[vmid]
-                dst_hid = solution.mapping[vmid]
-                if src_hid != dst_hid:
+                src_hid = self.env.mapping.mapping[vmid]
+                dst_hid = solution.mapping.mapping[vmid]
+                src_numa = self.env.mapping.numas[vmid]
+                dst_numa = solution.mapping.numas[vmid]
+                if src_hid != dst_hid or np.any(src_numa != dst_numa):
                     mem_moved_mb += vm.mem
             solution.migration_score = mem_moved_mb / 1024 / 1024
         return solution.migration_score

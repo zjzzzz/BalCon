@@ -2,6 +2,7 @@
 
 # Forbid numpy to use more than one thread
 # !!! Place before import numpy !!!
+import copy
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
 
@@ -13,10 +14,14 @@ from time import perf_counter
 
 from environment import Environment, Settings
 from balcon import BalCon
+from findf import FinDf
+from findef2 import FinDf2
 from firstfit import FirstFit
 from algorithm import Solution, Score
 from solver import FlowModel, AllocationModel, FlowModelRelaxed
 from sercon import SerCon, SerConOriginal
+from environment import VM
+from assignment  import Assignment
 
 
 def get_time():
@@ -108,31 +113,49 @@ def run_from_command_line() -> None:
     run_algorithms(args.algorithm, settings, env,  output_dir)
     
 
-def run_example(problem_path: str, algorithm: str, time_limit:int =60, wa:float = 1, wm:int = 2):
+def run_example(problem_path: str, algorithm: str, targetVM: VM=None, time_limit:int =60, wa:float = 1, wm:int = 2):
     env = Environment.load(problem_path)
 
     settings = Settings(tl=time_limit, wa=wa, wm=wm)
 
     t_start = perf_counter()
-    solution = algorithm(env,settings).solve()
+    if targetVM:
+        solution = algorithm(env,settings,targetVM).solve()
+    else:
+        solution = algorithm(env, settings).solve()
     t = perf_counter() - t_start
     
     score = Score(env, settings)
-    
+
+    new_env = copy.deepcopy(env)
+    new_env.mapping = solution.mapping
+    if not new_env.validate_mapping(new_env.mapping):
+        print("false")
+
+    asg_new = Assignment(new_env, settings)
+
+    init_flavor_num = score.flavor_nums(solution, Assignment(env=env, settings=settings), targetVM)
+    final_flavor_num = score.flavor_nums(solution, asg_new, targetVM)
+
     results = f"""
             Running time:                       {t} sec
             Objective function:                 {score.objective(solution)}
             Number of hosts in initial mapping: {score.savings_score(Solution(mapping=score.env.mapping))}
             Number of hosts in final mapping:   {score.savings_score(solution)}
             Number of released hosts:           {score.savings_score(Solution(mapping=score.env.mapping))-score.savings_score(solution)}
+            Number of flavors in initial mapping:   {init_flavor_num}
+            Number of flavors in final mapping:   {final_flavor_num}
+            Number of increased flavors:   {final_flavor_num - init_flavor_num}
             Amount of migrated memory:          {score.migration_score(solution)} TiB\n"""
             
     print(results)
 
+
 if __name__ == '__main__':
-    
     registry = {
             'balcon': BalCon,
+            'findf': FinDf,
+            'findf2': FinDf2,
             'sercon-modified': SerCon,
             'sercon-original': SerConOriginal,
             'firstfit': FirstFit,
@@ -140,9 +163,13 @@ if __name__ == '__main__':
             'flowmodel-relaxed': FlowModelRelaxed,
             'allocationmodel': AllocationModel,
     }
-    
+
+    flavor = VM
+    flavor.cpu = 8
+    flavor.mem = 16 * 1024
+    flavor.numa = 4
     # run_from_command_line()
-    run_example(problem_path='./data/synthetic/8th-numa.json', algorithm=registry['balcon'], time_limit=60, wa=1, wm=2)
+    run_example(problem_path='./data/synthetic/test-numa.json', algorithm=registry['findf2'], targetVM=flavor, time_limit=60, wa=1, wm=2)
 
 
 

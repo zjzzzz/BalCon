@@ -82,7 +82,7 @@ class Environment:
             vm_numa_num = self.vms[vmid].numa
             if hid == -1:
                 return False
-            if len(vm_numas) == 0 or vm_numas == [-1] * vm_numa_num:
+            if len(vm_numas) == 0 or np.any(vm_numas == -1):
                 return False
             for numa_id in vm_numas:
                 rem_nh_nr[hid, numa_id, Resources.CPU] -= self.vms[vmid].cpu // vm_numa_num

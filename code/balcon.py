@@ -2,6 +2,8 @@ from assignment import Assignment
 from environment import Environment, Settings, Mapping
 from algorithm import Algorithm
 from utils import AttemptResult
+from environment import VM
+import copy
 
 import numpy as np
 import heapq
@@ -264,7 +266,7 @@ class ForceFit:
 class BalCon(Algorithm):
     """Reference implementation of SerConFF algorithm """
 
-    def __init__(self, env: Environment, settings: Settings) -> None:
+    def __init__(self, env: Environment, settings: Settings, targetVM: VM) -> None:
         super().__init__(env, settings)
         # 计算host和vm的资源
         self.asg = Assignment(env, settings)
@@ -296,7 +298,9 @@ class BalCon(Algorithm):
         allowed_hids = list(self.asg.hids)
         # 未尝试关机的宿主机id
         hosts_to_try = list(self.asg.hids)
-
+        # # 使用指定flavor进行填充
+        # flavor_count_old = self.asg.fill(list(self.asg.hids))
+        flavor_count_old = 0
         while hosts_to_try and not self.tl.exceeded():
             self.asg.backup()
             score = self.asg.compute_score()
@@ -308,9 +312,17 @@ class BalCon(Algorithm):
             vmids = self.clear_host(hid)
             # 在可选择的目标宿主机上放置虚机
             if self.placer.place_vmids(vmids, allowed_hids):
-                result = AttemptResult.SUCCESS
+                # result = AttemptResult.SUCCESS
+                # env_new = copy.deepcopy(self.asg.env)
+                # env_new.mapping.mapping = copy.deepcopy(self.asg.mapping)
+                # env_new.mapping.numas = copy.deepcopy(self.asg.numas)
+                # asg_new = Assignment(env_new, self.asg.settings, self.asg.flavor)
+                # flavor_count_new = asg_new.fill(list(self.asg.hids))
+                # if flavor_count_new <= flavor_count_old:
                 if self.asg.compute_score() > score:
                     result = AttemptResult.WORSE
+                # else:
+                #     flavor_count_old = flavor_count_new
             else:
                 result = AttemptResult.FAIL
 
