@@ -119,6 +119,7 @@ class ForceFit:
             elif situation == Situation.AMPLE:
                 self.best_fit(vmid, hids)
             else:
+                # return False
                 self.induced_degree = self.asg.cal_induce_degree(hids, self.asg.env.vms[vmid], stash.get_form())
                 hids_filtered = self.filter_hosts(vmid, hids)
                 hid = self.choose_hid_to_try(list(hids_filtered), self.asg.env.vms[vmid])
@@ -161,11 +162,12 @@ class ForceFit:
 
                 vmids_migrate = vmids_filter[vm_sort_ids]
 
-                residue = self.push_vmid(vmid, hid, vmids_migrate)
+                residue = self.push_vmid(vmid, hid, vmids_migrate, cpu_impt, mem_impt)
                 stash.add(residue, stash.vm_layers[vmid])
                 for vmid_res in residue:
                     if stash.vm_layers[vmid_res] > self.max_layer:
                         return False
+                a = 5
         return stash.is_empty()
 
     def choose_hid_to_try(self, hids: np.array, flavor: VM) -> int:
@@ -323,15 +325,13 @@ class ForceFit:
 
         return vm_induce_metric / np.abs(np.sum(vm_induce_metric)+0.0001)
 
-    def push_vmid(self, in_vmid: int, hid: int, vmids: np.array) -> np.array:
+    def push_vmid(self, in_vmid: int, hid: int, vmids: np.array, cpu_impt: float, mem_impt: float) -> np.array:
         ejected_vmids = list()
         ejected_vm_nums = []
-        if in_vmid == 358 and hid == 32:
-            a = 5
         for vmid in vmids:
             # 避免成环
-            if self.asg.backup_mapping[vmid] != self.asg.mapping[vmid] or np.any(self.asg.backup_numas[vmid] != self.asg.numas[vmid]):
-                continue
+            # if self.asg.backup_mapping[vmid] != self.asg.mapping[vmid] or np.any(self.asg.backup_numas[vmid] != self.asg.numas[vmid]):
+            #     continue
             ejected_vmids.append(vmid)
             ejected_vm_nums.append(copy.deepcopy(self.asg.numas[vmid]))
             self.asg.exclude(vmid)
@@ -340,20 +340,31 @@ class ForceFit:
         if self.asg.is_feasible(in_vmid, hid):
             self.asg.include(in_vmid, hid)
         else:
-            for i, vmid in enumerate(ejected_vmids.copy()):
+            for i, vmid in enumerate(ejected_vmids):
                 self.asg.include(vmid, hid, ejected_vm_nums[i])
-                ejected_vmids.remove(vmid)
 
-        if len(ejected_vmids) == 0:
             return [in_vmid]
 
-        residue = list()
-        for vmid in ejected_vmids[::-1]:
-            if self.asg.is_feasible(vmid, hid):
-                self.asg.include(vmid, hid)
+        residue = []
+        residue_numa = []
+        for vmid, numas in zip(ejected_vmids[::-1], ejected_vm_nums[::-1]):
+            if self.asg.is_feasible_numa_index(vmid, hid, numas):
+                self.asg.include(vmid, hid, numas)
             else:
                 residue.append(vmid)
-        return residue
+                residue_numa.append(numas)
+
+        candi_degree = np.sum(self.asg.normalize(self.asg.required_nv_nr_all[residue]) * np.array([cpu_impt, mem_impt]))
+        target_degree = np.sum(self.asg.normalize(self.asg.required_nv_nr_all[in_vmid] * np.array([cpu_impt, mem_impt])))
+
+        if candi_degree > target_degree:
+            self.asg.exclude(in_vmid)
+            for vmid, numas in zip(residue, residue_numa):
+                self.asg.include(vmid, hid, numas)
+            return [in_vmid]
+        else:
+            return residue
+        # return residue
 
 
 class BalCon2(Algorithm):
@@ -452,10 +463,10 @@ class BalCon2(Algorithm):
         ejected_vmids = list()
         ejected_vm_nums = []
         for vmid in vmids:
-            # if self.asg.env.vms[vmid].cpu > self.asg.flavor.cpu and self.asg.env.vms[vmid].mem > self.asg.flavor.mem:
+            # if self.asg.backup_mapping[vmid] != self.asg.mapping[vmid] or np.any(self.asg.backup_numas[vmid] != self.asg.numas[vmid]):
             #     continue
             ejected_vmids.append(vmid)
-            ejected_vm_nums.append(self.asg.numas[vmid])
+            ejected_vm_nums.append(copy.deepcopy(self.asg.numas[vmid]))
             self.asg.exclude(vmid)
             if self.asg.is_feasible_flavor(hid, self.target_flavor):
                 break
@@ -470,10 +481,10 @@ class BalCon2(Algorithm):
         if len(ejected_vmids) == 0:
             return []
 
-        residue = [ejected_vmids[-1]]
-        for vmid in ejected_vmids[::-1][1:]:
-            if self.asg.is_feasible_numa_index(vmid, hid, self.asg.backup_numas[vmid]):
-                self.asg.include(vmid, hid, self.asg.backup_numas[vmid])
+        residue = []
+        for vmid, numas in zip(ejected_vmids[::-1], ejected_vm_nums[::-1]):
+            if self.asg.is_feasible_numa_index(vmid, hid, numas):
+                self.asg.include(vmid, hid, numas)
             else:
                 residue.append(vmid)
         return residue
@@ -487,7 +498,7 @@ class BalCon2(Algorithm):
         flavor_count_old = self.asg.fill(list(self.asg.hids), self.target_flavor)
 
         # flavor_count_old = 0
-        while hosts_to_try and not self.tl.exceeded():
+        while hosts_to_try:
             self.asg.backup()
             self.induced_degree = self.asg.cal_induce_degree(allowed_hids, self.target_flavor, np.array([0, 0]))
             score = self.asg.compute_score()

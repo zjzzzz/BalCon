@@ -97,6 +97,8 @@ class Assignment:
         self.mapping[vmid] = hid
         if vm_numas is None:
             vm_numas = []
+        else:
+            assert self.is_feasible_numa_index(vmid, hid, vm_numas)
         vm_numas = vm_numas.copy()
         if len(vm_numas) == 0:
             self.numas[vmid] = self.default_include_numa(vmid, hid)

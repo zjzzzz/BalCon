@@ -182,23 +182,27 @@ if __name__ == '__main__':
     # run_from_command_line()
     rng = np.random.default_rng(0)
 
-    candi_flavors = generate_vms(10, rng)
+    flavors = predefined_flavors()
+    candi_flavor_id = random.sample(range(len(flavors)), 10)
+    candi_flavor = [flavors[id] for id in candi_flavor_id]
     candi_exp = random.sample(range(100), 20)
     begin = time.time()
     result = []
-    for layer in range(1, 11):
-        flavor = VM
-        flavor.cpu = 8
-        flavor.mem = 16 * 1024
-        flavor.numa = 4
-        # for j, flavor in enumerate(predefined_flavors()):
-        for i in range(100):
-            print("-----------------{}th-layer-{}th-num------------------".format(layer, i))
-            # layer = 1
-            # flavor = candi_flavors[1]
-            # i = 42
-            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon2'], targetVM=flavor, time_limit=10, wa=1, wm=2, max_layer=layer)
-            result.append([i, layer, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory, migrated_count])
+    for layer in range(1, 6):
+    # layer = 2
+    #     flavor = VM
+    #     flavor.cpu = 8
+    #     flavor.mem = 16 * 1024
+    #     flavor.numa = 4
+        for j, flavor in enumerate(candi_flavor):
+            for i in range(100):
+            # i = 7
+                print("-----------------{}th-layer-{}th-num------------------".format(layer, i))
+                # layer = 1
+                # flavor = candi_flavors[1]
+                # i = 42
+                init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon2'], targetVM=flavor, time_limit=30, wa=1, wm=2, max_layer=layer)
+                result.append([i, layer, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory, migrated_count])
     end = time.time()
     print("spend {}".format(end-begin))
 
@@ -207,8 +211,9 @@ if __name__ == '__main__':
     result_df.columns = columns
 
     result_df["add_flavor_num"] = result_df["after_flavor_num"] - result_df["init_flavor_num"]
-    result_df.to_excel("max_layer_data.xlsx")
     grouped = result_df.groupby("max_layer").mean()
+
+    result_df.to_excel("max_layer_data.xlsx")
     print(grouped)
 
 
