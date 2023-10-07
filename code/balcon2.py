@@ -69,7 +69,7 @@ class Prohibitor:
     def __init__(self, n_hosts):
         self.last_hid = -1
         self.last_hid_counter = 0
-        self.tabu_score = np.full(n_hosts, 0, dtype=np.float)
+        self.tabu_score = np.full(n_hosts, 0, dtype=np.float32)
 
     def forbid_long_repeats(self, hids, hid):
         if hid == self.last_hid:
@@ -119,13 +119,6 @@ class ForceFit:
             elif situation == Situation.AMPLE:
                 self.best_fit(vmid, hids)
             else:
-                # return False
-                self.induced_degree = self.asg.cal_induce_degree(hids, self.asg.env.vms[vmid], stash.get_form())
-                hids_filtered = self.filter_hosts(vmid, hids)
-                hid = self.choose_hid_to_try(list(hids_filtered), self.asg.env.vms[vmid])
-                required_nh_nv = self.asg.required_nv_nr[vmid] - self.asg.remained_nh_nr
-                required_nh_nv[required_nh_nv <= 0] = 0
-
                 # if situation == Situation.BALANCED:
                 #     # 拥有最多的规格小于该虚机的宿主机
                 #     # hid = self.choose_hid_balanced(vmid, hids_filtered)
@@ -135,6 +128,12 @@ class ForceFit:
                 #     # hid = self.choose_hid_lopsided(vmid, hids_filtered)
                 #     # hid = prohibitor.forbid_long_repeats(hids_filtered, hid)
                 #     vmids = self.choose_vmids_lopsided(hid, vmid)
+
+                self.induced_degree = self.asg.cal_induce_degree(hids, self.asg.env.vms[vmid], stash.get_form())
+                hids_filtered = self.filter_hosts(vmid, hids)
+                hid = self.choose_hid_to_try(list(hids_filtered), self.asg.env.vms[vmid])
+                required_nh_nv = self.asg.required_nv_nr[vmid] - self.asg.remained_nh_nr
+                required_nh_nv[required_nh_nv <= 0] = 0
 
                 normalize_required = self.asg.normalize(required_nh_nv)
                 impt = np.sum(normalize_required[hid], axis=0) / np.sum(normalize_required[hid])
@@ -167,7 +166,6 @@ class ForceFit:
                 for vmid_res in residue:
                     if stash.vm_layers[vmid_res] > self.max_layer:
                         return False
-                a = 5
         return stash.is_empty()
 
     def choose_hid_to_try(self, hids: np.array, flavor: VM) -> int:

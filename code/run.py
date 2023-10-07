@@ -11,6 +11,9 @@ import logging
 import pathlib
 from datetime import datetime
 from time import perf_counter
+from generate import predefined_flavors, generate_vms
+import time
+import pandas as pd
 
 from environment import Environment, Settings
 from balcon import BalCon
@@ -112,20 +115,21 @@ def run_from_command_line() -> None:
     )
     
     run_algorithms(args.algorithm, settings, env,  output_dir)
-    
 
-def run_example(problem_path: str, algorithm: str, targetVM: VM=None, time_limit:int =60, wa:float = 1, wm:int = 2, max_layer: int = 5):
+
+def run_example(problem_path: str, algorithm: str, targetVM: VM = None, time_limit: int = 60, wa: float = 1,
+                wm: int = 2, max_layer: int = 5):
     env = Environment.load(problem_path)
 
     settings = Settings(tl=time_limit, wa=wa, wm=wm, max_layer=max_layer)
 
     t_start = perf_counter()
     if targetVM:
-        solution = algorithm(env,settings,targetVM).solve()
+        solution = algorithm(env, settings, targetVM).solve()
     else:
         solution = algorithm(env, settings).solve()
     t = perf_counter() - t_start
-    
+
     score = Score(env, settings)
 
     new_env = copy.deepcopy(env)
@@ -143,7 +147,7 @@ def run_example(problem_path: str, algorithm: str, targetVM: VM=None, time_limit
             Objective function:                 {score.objective(solution)}
             Number of hosts in initial mapping: {score.savings_score(Solution(mapping=score.env.mapping))}
             Number of hosts in final mapping:   {score.savings_score(solution)}
-            Number of released hosts:           {score.savings_score(Solution(mapping=score.env.mapping))-score.savings_score(solution)}
+            Number of released hosts:           {score.savings_score(Solution(mapping=score.env.mapping)) - score.savings_score(solution)}
             Number of flavors in initial mapping:   {init_flavor_num}
             Number of flavors in final mapping:   {final_flavor_num}
             Number of increased flavors:   {final_flavor_num - init_flavor_num}
@@ -151,6 +155,7 @@ def run_example(problem_path: str, algorithm: str, targetVM: VM=None, time_limit
             Amount of migrated VM: {score.migration_count(solution)}\n"""
 
     print(results)
+    return init_flavor_num, final_flavor_num, score.migration_score(solution), score.migration_count(solution)
 
 
 if __name__ == '__main__':
@@ -167,15 +172,35 @@ if __name__ == '__main__':
             'allocationmodel': AllocationModel,
     }
 
-    flavor = VM
-    flavor.cpu = 8
-    flavor.mem = 16 * 1024
-    flavor.numa = 4
+    # flavor = VM
+    # flavor.cpu = 8
+    # flavor.mem = 16 * 1024
+    # flavor.numa = 4
+    result = []
+    begin = time.time()
     # run_from_command_line()
-    for i in range(100):
-        print("-----------------{}th-num------------------".format(i))
-    # i = 2
-        run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon2'], targetVM=flavor, time_limit=10, wa=1, wm=2)
+    for j, flavor in enumerate(predefined_flavors()):
+        print("---------------------cpu:{}-mem:{}-numa:{}---------------------".format(flavor.cpu, flavor.mem, flavor.numa))
+        for i in range(100):
+            print("-----------------{}th-example {}th-flavor------------------".format(i, j))
+        # i = 2
+            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon'], targetVM=flavor, time_limit=10, wa=1, wm=2, max_layer=3)
+            result.append(
+                [i, 3, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory,
+                 migrated_count])
+
+    end = time.time()
+    print("spend {}".format(end-begin))
+
+    result_df = pd.DataFrame(result)
+    columns = ["example_id", "max_layer", "cpu", "mem", "numa", "init_flavor_num", "after_flavor_num", "migrated_memory", "migrated_count"]
+    result_df.columns = columns
+
+    result_df["add_flavor_num"] = result_df["after_flavor_num"] - result_df["init_flavor_num"]
+    grouped = result_df.groupby(["cpu", "mem", "numa"]).mean()
+
+    result_df.to_excel("balcon.xlsx")
+    print(grouped)
 
 
 

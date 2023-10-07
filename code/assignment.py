@@ -91,8 +91,6 @@ class Assignment:
 
     def include(self, vmid: int, hid: int, vm_numas: List[int] = None) -> None:
         assert (self.mapping[vmid] == -1)
-        if not self.is_feasible(vmid, hid):
-            a = 5
         assert self.is_feasible(vmid, hid)
         self.mapping[vmid] = hid
         if vm_numas is None:

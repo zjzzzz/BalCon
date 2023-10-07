@@ -65,7 +65,7 @@ class Prohibitor:
     def __init__(self, n_hosts):
         self.last_hid = -1
         self.last_hid_counter = 0
-        self.tabu_score = np.full(n_hosts, 0, dtype=np.float)
+        self.tabu_score = np.full(n_hosts, 0, dtype=np.float32)
 
     def forbid_long_repeats(self, hids, hid):
         if hid == self.last_hid:
@@ -245,19 +245,33 @@ class ForceFit:
 
     def push_vmid(self, in_vmid: int, hid: int, vmids: np.array) -> np.array:
         ejected_vmids = list()
+        ejected_vm_nums = []
         for vmid in vmids:
-            self.asg.exclude(vmid)
+            # 避免成环
+            # if self.asg.backup_mapping[vmid] != self.asg.mapping[vmid] or np.any(self.asg.backup_numas[vmid] != self.asg.numas[vmid]):
+            #     continue
             ejected_vmids.append(vmid)
+            ejected_vm_nums.append(copy.deepcopy(self.asg.numas[vmid]))
+            self.asg.exclude(vmid)
             if self.asg.is_feasible(in_vmid, hid): break
 
-        self.asg.include(in_vmid, hid)
+        if self.asg.is_feasible(in_vmid, hid):
+            self.asg.include(in_vmid, hid)
+        else:
+            for i, vmid in enumerate(ejected_vmids):
+                self.asg.include(vmid, hid, ejected_vm_nums[i])
 
-        residue = list()
-        for vmid in ejected_vmids[::-1]:
-            if self.asg.is_feasible(vmid, hid):
-                self.asg.include(vmid, hid)
+            return [in_vmid]
+
+        residue = []
+        residue_numa = []
+        for vmid, numas in zip(ejected_vmids[::-1], ejected_vm_nums[::-1]):
+            if self.asg.is_feasible_numa_index(vmid, hid, numas):
+                self.asg.include(vmid, hid, numas)
             else:
                 residue.append(vmid)
+                residue_numa.append(numas)
+
         return residue
 
 
@@ -273,6 +287,7 @@ class BalCon(Algorithm):
         self.coin = Coin()
         # 宿主机已占用内存
         self.initial_memory_nh = np.sum(self.asg.occupied_nh_nr, axis=1)[:, 1].copy()
+        self.target_flavor=targetVM
 
     def clear_host(self, hid: int) -> np.array:
         vmids = self.asg.get_vmids_on_hid(hid)
@@ -297,11 +312,11 @@ class BalCon(Algorithm):
         # 未尝试关机的宿主机id
         hosts_to_try = list(self.asg.hids)
         # # 使用指定flavor进行填充
-        # flavor_count_old = self.asg.fill(list(self.asg.hids))
-        flavor_count_old = 0
+        flavor_count_old = self.asg.fill(list(self.asg.hids), self.target_flavor)
+        # flavor_count_old = 0
         while hosts_to_try and not self.tl.exceeded():
             self.asg.backup()
-            score = self.asg.compute_score()
+            # score = self.asg.compute_score()
             # 根据内存进行排序
             hid = self.choose_hid_to_try(hosts_to_try)
             hosts_to_try.remove(hid)
@@ -311,16 +326,16 @@ class BalCon(Algorithm):
             # 在可选择的目标宿主机上放置虚机
             if self.placer.place_vmids(vmids, allowed_hids):
                 # result = AttemptResult.SUCCESS
-                # env_new = copy.deepcopy(self.asg.env)
-                # env_new.mapping.mapping = copy.deepcopy(self.asg.mapping)
-                # env_new.mapping.numas = copy.deepcopy(self.asg.numas)
-                # asg_new = Assignment(env_new, self.asg.settings, self.asg.flavor)
-                # flavor_count_new = asg_new.fill(list(self.asg.hids))
-                # if flavor_count_new <= flavor_count_old:
-                if self.asg.compute_score() > score:
+                env_new = copy.deepcopy(self.asg.env)
+                env_new.mapping.mapping = copy.deepcopy(self.asg.mapping)
+                env_new.mapping.numas = copy.deepcopy(self.asg.numas)
+                asg_new = Assignment(env_new, self.asg.settings)
+                flavor_count_new = asg_new.fill(list(self.asg.hids), self.target_flavor)
+                if flavor_count_new <= flavor_count_old:
+                # if self.asg.compute_score() > score:
                     result = AttemptResult.WORSE
                 else:
-                    # flavor_count_old = flavor_count_new
+                    flavor_count_old = flavor_count_new
                     result = AttemptResult.SUCCESS
             else:
                 result = AttemptResult.FAIL

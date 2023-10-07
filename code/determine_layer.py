@@ -194,7 +194,7 @@ if __name__ == '__main__':
     #     flavor.cpu = 8
     #     flavor.mem = 16 * 1024
     #     flavor.numa = 4
-        for j, flavor in enumerate(candi_flavor):
+        for j, flavor in enumerate(flavors):
             for i in range(100):
             # i = 7
                 print("-----------------{}th-layer-{}th-num------------------".format(layer, i))
