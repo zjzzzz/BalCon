@@ -250,8 +250,6 @@ class ForceFit:
             ejected_vmids.append(vmid)
             if self.asg.is_feasible(in_vmid, hid): break
 
-        if not np.all(self.asg.occupied_nh_nr > 0):
-            a = 5
         self.asg.include(in_vmid, hid)
 
         residue = list()
@@ -321,8 +319,9 @@ class BalCon(Algorithm):
                 # if flavor_count_new <= flavor_count_old:
                 if self.asg.compute_score() > score:
                     result = AttemptResult.WORSE
-                # else:
-                #     flavor_count_old = flavor_count_new
+                else:
+                    # flavor_count_old = flavor_count_new
+                    result = AttemptResult.SUCCESS
             else:
                 result = AttemptResult.FAIL
 

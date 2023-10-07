@@ -94,9 +94,9 @@ def generate_synthetic_dataset(n_instances: int, path: str) -> None:
         n_vms = rng.integers(N_VMS_RANGE[0], N_VMS_RANGE[1] + 1)
         env = generate_instance(n_vms=n_vms, rng=rng)
         n_vms = len(env.vms)
-        problem_path = path / f'test-numa.json'
+        problem_path = path / f'{i}th-numa.json'
         env.save(problem_path)
 
 
 if __name__ == '__main__':
-    generate_synthetic_dataset(1, './data/synthetic')
+    generate_synthetic_dataset(100, './data/synthetic')

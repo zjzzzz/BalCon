@@ -70,7 +70,7 @@ class Assignment:
     def is_assigned(self, vmid: int) -> bool:
         return self.mapping[vmid] != -1 and np.all(self.numas[vmid] != -1)
 
-    def exclude(self, vmid: int, targetVM: VM = None) -> None:
+    def exclude(self, vmid: int) -> None:
         assert self.is_assigned(vmid)
         hid = self.mapping[vmid]
         vm_numas = self.numas[vmid].copy()
@@ -89,8 +89,10 @@ class Assignment:
             if self.is_assigned(vmid):
                 self.exclude(vmid)
 
-    def include(self, vmid: int, hid: int, vm_numas: List[int] = None, targetVM: VM = None) -> None:
+    def include(self, vmid: int, hid: int, vm_numas: List[int] = None) -> None:
         assert (self.mapping[vmid] == -1)
+        if not self.is_feasible(vmid, hid):
+            a = 5
         assert self.is_feasible(vmid, hid)
         self.mapping[vmid] = hid
         if vm_numas is None:
@@ -283,11 +285,16 @@ class Assignment:
         plt.legend()
         plt.show()
 
-    def cal_induce_degree(self, hids: List, targetVM: VM) -> float:
-        f_nr = np.array([targetVM.cpu, targetVM.mem])
+    def cal_induce_degree(self, hids: List, targetVM: VM, stash_form: np.array) -> float:
+        f_nr = stash_form + np.array([targetVM.cpu, targetVM.mem])
         rem_nh_nr = np.sum(self.remained_nh_nr[hids], axis=1)
         capacity = np.sum(np.amin(rem_nh_nr / f_nr, axis=1))
-        potential_capacity = np.amin(np.sum(self.remained_nh_nr[hids], axis=(0, 1)) / f_nr)
+        potential_capacity = np.amin(np.sum(rem_nh_nr, axis=0) / f_nr)
+
+        # f_nr = np.array([targetVM.cpu, targetVM.mem])
+        # rem_nh_nr = np.sum(self.remained_nh_nr[hids], axis=1)
+        # capacity = np.sum(np.amin(rem_nh_nr / f_nr, axis=1))
+        # potential_capacity = np.amin(np.sum(self.remained_nh_nr[hids], axis=(0, 1)) / f_nr)
 
         # f_nr = np.array([targetVM.cpu//targetVM.numa, targetVM.mem//targetVM.numa])
         # vm_numa_num = np.amin(self.remained_nh_nr[hids] / f_nr, axis=2)
@@ -300,7 +307,7 @@ class Assignment:
         # for i in range(len(hids)):
         #     potential_capacity += vm_numa_num[i][np.argsort(vm_numa_num[i])[::-1][targetVM.numa - 1]]
         # potential_capacity = np.amin(np.sum(self.remained_nh_nr[hids], axis=(0, 1)) / (f_nr * targetVM.numa))
-        return capacity/potential_capacity
+        return np.exp(ALPHA-capacity/(potential_capacity + 0.0001))
 
     def cal_global_optimal_res_diff(self, hids: List, targetVM: VM) -> np.array:
         f_nr = np.array([targetVM.cpu, targetVM.mem])
@@ -319,20 +326,28 @@ class Assignment:
         project_lengths = dot_product / (target_norm + 0.0001)
         return project_lengths, target_norm
 
-    def cal_host_required_degree(self, required_nh: np.array) -> np.array:
-        # 不应该直接累加numa，因为虚机可能只需要两个numa就行
-        # 宿主机numa排序，累加numa.num个numa的需求资源
-        required_nh_temp = np.sum(self.normalize(required_nh), axis=1)
-        res_sum = np.sum(required_nh_temp, axis=0)
-        degree = (res_sum[Resources.CPU] * required_nh_temp[:, Resources.CPU] +
-                  res_sum[Resources.MEM] * required_nh_temp[:, Resources.MEM]) / sum(res_sum)
+    def cal_host_required_degree(self, required_nh: np.array, numa_num: int = 0) -> np.array:
+        # required_nh_temp = np.sum(self.normalize(required_nh), axis=1)
+        # res_sum = np.sum(required_nh_temp, axis=0)
+        # degree = (res_sum[Resources.CPU] * required_nh_temp[:, Resources.CPU] +
+        #           res_sum[Resources.MEM] * required_nh_temp[:, Resources.MEM]) / sum(res_sum)
 
-        return degree / np.sum(degree)
+        # 宿主机numa排序，累加numa.num个numa的需求资源
+        required_nh_temp = self.normalize(required_nh)
+        res_sum = np.sum(required_nh_temp, axis=(0, 1))
+        weight_sum = (res_sum[Resources.CPU] * required_nh_temp[:, :, Resources.CPU] +
+                  res_sum[Resources.MEM] * required_nh_temp[:, :, Resources.MEM]) / sum(res_sum)
+
+        arr_sort = np.sort(weight_sum, axis=1)
+        if numa_num == 0:
+            numa_num = arr_sort.shape[1]
+        degree = np.sum(arr_sort[:, :numa_num], axis=1)
+        return self.max_min(degree)
 
     def cal_host_induced_degree(self, hids: List, targetVM: VM) -> np.array:
-        optimal_diff = self.cal_global_optimal_res_diff(hids, targetVM)
-        induced_degree = np.abs(optimal_diff[:, Resources.CPU] - optimal_diff[:, Resources.MEM])
-        return induced_degree / np.sum(induced_degree)
+        rate = np.sum(self.remained_nh_nr[hids], axis=1) / np.array([targetVM.cpu, targetVM.mem])
+        induced_degree = np.abs(rate[:, Resources.CPU] - rate[:, Resources.MEM])
+        return self.max_min(induced_degree)
 
     def normalize(self, target: np.array) -> np.array:
         target_temp = copy.deepcopy(target)
@@ -340,3 +355,8 @@ class Assignment:
         target_temp = target_temp / max_value
 
         return target_temp
+
+    def max_min(self, value: np.array) -> np.array:
+        max_v = np.max(value)
+        min_v = np.min(value)
+        return (value - min_v) / (max_v-min_v + 0.0001)

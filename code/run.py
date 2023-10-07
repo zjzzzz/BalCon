@@ -14,6 +14,7 @@ from time import perf_counter
 
 from environment import Environment, Settings
 from balcon import BalCon
+from balcon2 import BalCon2
 from findf import FinDf
 from findef2 import FinDf2
 from firstfit import FirstFit
@@ -113,10 +114,10 @@ def run_from_command_line() -> None:
     run_algorithms(args.algorithm, settings, env,  output_dir)
     
 
-def run_example(problem_path: str, algorithm: str, targetVM: VM=None, time_limit:int =60, wa:float = 1, wm:int = 2):
+def run_example(problem_path: str, algorithm: str, targetVM: VM=None, time_limit:int =60, wa:float = 1, wm:int = 2, max_layer: int = 5):
     env = Environment.load(problem_path)
 
-    settings = Settings(tl=time_limit, wa=wa, wm=wm)
+    settings = Settings(tl=time_limit, wa=wa, wm=wm, max_layer=max_layer)
 
     t_start = perf_counter()
     if targetVM:
@@ -146,14 +147,16 @@ def run_example(problem_path: str, algorithm: str, targetVM: VM=None, time_limit
             Number of flavors in initial mapping:   {init_flavor_num}
             Number of flavors in final mapping:   {final_flavor_num}
             Number of increased flavors:   {final_flavor_num - init_flavor_num}
-            Amount of migrated memory:          {score.migration_score(solution)} TiB\n"""
-            
+            Amount of migrated memory:          {score.migration_score(solution)} TiB
+            Amount of migrated VM: {score.migration_count(solution)}\n"""
+
     print(results)
 
 
 if __name__ == '__main__':
     registry = {
             'balcon': BalCon,
+            'balcon2': BalCon2,
             'findf': FinDf,
             'findf2': FinDf2,
             'sercon-modified': SerCon,
@@ -169,7 +172,10 @@ if __name__ == '__main__':
     flavor.mem = 16 * 1024
     flavor.numa = 4
     # run_from_command_line()
-    run_example(problem_path='./data/synthetic/test-numa.json', algorithm=registry['findf2'], targetVM=flavor, time_limit=60, wa=1, wm=2)
+    for i in range(100):
+        print("-----------------{}th-num------------------".format(i))
+    # i = 2
+        run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon2'], targetVM=flavor, time_limit=10, wa=1, wm=2)
 
 
 

@@ -97,3 +97,4 @@ class Settings:
     wm: float = 1.
     tl: float = 600.
     max_force_steps: int = 4000
+    max_layer: int = 5

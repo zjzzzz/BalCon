@@ -1,0 +1,62 @@
+[
+    {
+        "avg_init_flavor_num": 41.825,
+        "avg_after_flavor_num": 47.7,
+        "avg_migrated_memory": 0.09478515625,
+        "avg_migrated_count": 21.455
+    },
+    {
+        "avg_init_flavor_num": 41.825,
+        "avg_after_flavor_num": 47.57,
+        "avg_migrated_memory": 0.10923828125,
+        "avg_migrated_count": 24.54
+    },
+    {
+        "avg_init_flavor_num": 41.825,
+        "avg_after_flavor_num": 47.3,
+        "avg_migrated_memory": 0.1198779296875,
+        "avg_migrated_count": 26.225
+    },
+    {
+        "avg_init_flavor_num": 41.825,
+        "avg_after_flavor_num": 47.37,
+        "avg_migrated_memory": 0.125791015625,
+        "avg_migrated_count": 27.14
+    },
+    {
+        "avg_init_flavor_num": 41.825,
+        "avg_after_flavor_num": 47.39,
+        "avg_migrated_memory": 0.12716796875,
+        "avg_migrated_count": 27.27
+    },
+    {
+        "avg_init_flavor_num": 41.825,
+        "avg_after_flavor_num": 47.375,
+        "avg_migrated_memory": 0.1284814453125,
+        "avg_migrated_count": 27.62
+    },
+    {
+        "avg_init_flavor_num": 41.825,
+        "avg_after_flavor_num": 47.355,
+        "avg_migrated_memory": 0.12775390625,
+        "avg_migrated_count": 27.525
+    },
+    {
+        "avg_init_flavor_num": 41.825,
+        "avg_after_flavor_num": 47.39,
+        "avg_migrated_memory": 0.1329248046875,
+        "avg_migrated_count": 28.165
+    },
+    {
+        "avg_init_flavor_num": 41.825,
+        "avg_after_flavor_num": 47.4,
+        "avg_migrated_memory": 0.135263671875,
+        "avg_migrated_count": 28.515
+    },
+    {
+        "avg_init_flavor_num": 41.825,
+        "avg_after_flavor_num": 47.4,
+        "avg_migrated_memory": 0.135263671875,
+        "avg_migrated_count": 28.515
+    }
+]

@@ -33,7 +33,7 @@ class FirstFit(Algorithm):
         asg = self.asg
         asg.clear()
 
-        for vmid in self.sorted_vmids:
+        for vmid in self.asg.vmids:
             a = np.flatnonzero(asg.is_feasible_nh(vmid))
             for hid in np.flatnonzero(asg.is_feasible_nh(vmid)):
                 asg.include(vmid, hid)

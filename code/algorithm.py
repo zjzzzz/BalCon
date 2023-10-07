@@ -15,6 +15,7 @@ class Solution:
     objective: Optional[float] = None
     savings_score: Optional[float] = None    # is the number of active hosts in the solution
     migration_score: Optional[float] = None  # is the amount of migrated memory in the solution
+    migration_count: Optional[float] = None
     status: Optional[str] = None
     elapsed: float = 0
     flavor_nums: Optional[int] = None  # is the number of flavor in the solution
@@ -80,6 +81,20 @@ class Score:
                     mem_moved_mb += vm.mem
             solution.migration_score = mem_moved_mb / 1024 / 1024
         return solution.migration_score
+
+    def migration_count(self, solution: Solution) -> float:
+        """ Amount of migrated memory in terabytes """
+        if solution.mapping is not None:
+            count = 0
+            for vmid, vm in enumerate(self.env.vms):
+                src_hid = self.env.mapping.mapping[vmid]
+                dst_hid = solution.mapping.mapping[vmid]
+                src_numa = self.env.mapping.numas[vmid]
+                dst_numa = solution.mapping.numas[vmid]
+                if src_hid != dst_hid or np.any(src_numa != dst_numa):
+                    count += 1
+            solution.migration_count = count
+        return solution.migration_count
 
     def repr_migration_score(self, solution) -> str:
         score = f'{self.migration_score(solution):.2f} TiB'
