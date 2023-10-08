@@ -17,6 +17,7 @@ from time import perf_counter
 import numpy as np
 import random
 import pandas as pd
+import threading
 
 from environment import Environment, Settings
 from balcon import BalCon
@@ -157,8 +158,26 @@ def run_example(problem_path: str, algorithm: str, targetVM: VM=None, time_limit
             Amount of migrated memory:          {score.migration_score(solution)} TiB
             Amount of migrated VM: {score.migration_count(solution)}\n"""
 
-    print(results)
+    # print(results)
     return init_flavor_num, final_flavor_num, score.migration_score(solution), score.migration_count(solution)
+
+
+# 定义一个函数，作为线程的目标函数
+def task(layer, result_list):
+    flavors = predefined_flavors()
+    for j, flavor in enumerate(flavors):
+        for i in range(100):
+            # i = 7
+            print("-----------------{}th-layer-{}th-flavor-{}th-num------------------".format(layer, j, i))
+            # layer = 1
+            # flavor = candi_flavors[1]
+            # i = 42
+            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(
+                problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon2'],
+                targetVM=flavor, time_limit=30, wa=1, wm=2, max_layer=layer)
+            result_list[layer-1].append(
+                [i, layer, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory,
+                 migrated_count])
 
 
 if __name__ == '__main__':
@@ -175,10 +194,10 @@ if __name__ == '__main__':
             'allocationmodel': AllocationModel,
     }
 
-    flavor = VM
-    flavor.cpu = 8
-    flavor.mem = 16 * 1024
-    flavor.numa = 4
+    # flavor = VM
+    # flavor.cpu = 8
+    # flavor.mem = 16 * 1024
+    # flavor.numa = 4
     # run_from_command_line()
     rng = np.random.default_rng(0)
 
@@ -188,24 +207,39 @@ if __name__ == '__main__':
     candi_exp = random.sample(range(100), 20)
     begin = time.time()
     result = []
+    results = [[] for _ in range(5)]
+    threads = []
+
     for layer in range(1, 6):
-    # layer = 2
-    #     flavor = VM
-    #     flavor.cpu = 8
-    #     flavor.mem = 16 * 1024
-    #     flavor.numa = 4
-        for j, flavor in enumerate(flavors):
-            for i in range(100):
-            # i = 7
-                print("-----------------{}th-layer-{}th-num------------------".format(layer, i))
-                # layer = 1
-                # flavor = candi_flavors[1]
-                # i = 42
-                init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon2'], targetVM=flavor, time_limit=30, wa=1, wm=2, max_layer=layer)
-                result.append([i, layer, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory, migrated_count])
+        thread = threading.Thread(target=task, args=(layer, results))
+        thread.start()
+        threads.append(thread)
+
+    # 等待所有线程执行完成
+    for thread in threads:
+        thread.join()
+
+    for layer_result in results:
+        result.extend(layer_result)
+
+    # for layer in range(1, 11):
+    # # layer = 2
+    # #     flavor = VM
+    # #     flavor.cpu = 8
+    # #     flavor.mem = 16 * 1024
+    # #     flavor.numa = 4
+    #     for j, flavor in enumerate(flavors):
+    #         for i in range(100):
+    #         # i = 7
+    #             print("-----------------{}th-layer-{}th-flavor-{}th-num------------------".format(layer, j, i))
+    #             # layer = 1
+    #             # flavor = candi_flavors[1]
+    #             # i = 42
+    #             init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon2'], targetVM=flavor, time_limit=30, wa=1, wm=2, max_layer=layer)
+    #             result.append([i, layer, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory, migrated_count])
     end = time.time()
     print("spend {}".format(end-begin))
-
+    #
     result_df = pd.DataFrame(result)
     columns = ["exp_id", "max_layer", "cpu", "mem", "numa", "init_flavor_num", "after_flavor_num", "migrated_memory", "migrated_count"]
     result_df.columns = columns

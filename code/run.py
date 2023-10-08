@@ -184,7 +184,7 @@ if __name__ == '__main__':
         for i in range(100):
             print("-----------------{}th-example {}th-flavor------------------".format(i, j))
         # i = 2
-            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon'], targetVM=flavor, time_limit=10, wa=1, wm=2, max_layer=3)
+            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon'], targetVM=flavor, time_limit=1, wa=1, wm=2, max_layer=3)
             result.append(
                 [i, 3, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory,
                  migrated_count])
