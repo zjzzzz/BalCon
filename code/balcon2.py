@@ -143,10 +143,15 @@ class ForceFit:
                 # 对虚机规格筛选，大于vmid的不考虑
                 vmids_hid = self.asg.get_vmids_on_hid(hid)
                 vms_normalize = self.asg.normalize(self.asg.required_nv_nr_all[vmids_hid])
-                vm_flavor = vms_normalize[:, Resources.CPU] * cpu_impt + \
-                            vms_normalize[:, Resources.MEM] * mem_impt
+                vm_flavor = np.sum(vms_normalize * np.array([cpu_impt, mem_impt]), axis=1)
+                    # vms_normalize[:, Resources.CPU] * cpu_impt + \
+                    #         vms_normalize[:, Resources.MEM] * mem_impt
                 # 虚机计算投影匹配度，计算虚机得分
-                vmids_filter = vmids_hid
+
+                target_vm_norm = self.asg.normalize(self.asg.required_nv_nr_all[vmid])
+                smaller_flavor_ids = vm_flavor < np.sum(target_vm_norm * np.array([cpu_impt, mem_impt]))
+                vmids_filter = vmids_hid[smaller_flavor_ids]
+                # vmids_filter = vmids_hid
                 vm_local_metric = self.cal_vm_local_metric(vmids_filter, required_nh_nv[hid],
                                                              cpu_impt, mem_impt, self.asg.env.vms[vmid].numa)
                 vm_global_metric = self.cal_vm_induce_metric(hid, vmids_filter, self.asg.env.vms[vmid], cpu_impt, mem_impt)
@@ -426,12 +431,15 @@ class BalCon2(Algorithm):
         # 对虚机规格筛选，大于flavor的不考虑
         vmids_hid = self.asg.get_vmids_on_hid(hid)
         vms_normalize = self.asg.normalize(self.asg.required_nv_nr_all[vmids_hid])
-        vm_flavor = vms_normalize[:, Resources.CPU] * cpu_impt + \
-                    vms_normalize[:, Resources.MEM] * mem_impt
+        vm_flavor = np.sum(vms_normalize * np.array([cpu_impt, mem_impt]), axis=1)
+        # vms_normalize[:, Resources.CPU] * cpu_impt + \
+        #         vms_normalize[:, Resources.MEM] * mem_impt
+        # 虚机计算投影匹配度，计算虚机得分
 
-        # smaller_flavor_ids = vm_flavor <= self.target_flavor.cpu*cpu_impt + self.target_flavor.mem*mem_impt
-        # vmids_filter = vmids_hid[smaller_flavor_ids]
-        vmids_filter = vmids_hid
+        target_flavor_norm = self.asg.normalize(np.array([self.target_flavor.cpu, self.target_flavor.mem]))
+        smaller_flavor_ids = vm_flavor < np.sum(target_flavor_norm * np.array([cpu_impt, mem_impt]))
+        vmids_filter = vmids_hid[smaller_flavor_ids]
+        # vmids_filter = vmids_hid
         if len(vmids_filter) == 0:
             return []
 
@@ -448,7 +456,7 @@ class BalCon2(Algorithm):
         vmids_sort = vmids_filter[vm_sort_ids]
 
         # 按顺序选择虚机，直至覆盖required_nh_nr
-        vm_eliminate_list = self.push_vmid(hid, vmids_sort)
+        vm_eliminate_list = self.push_vmid(hid, vmids_sort, cpu_impt, mem_impt)
 
         return vm_eliminate_list
 
@@ -457,7 +465,7 @@ class BalCon2(Algorithm):
                  f'force steps: {self.placer.force_steps_counter:<7}\t'
                  f'{result}')
 
-    def push_vmid(self, hid: int, vmids: np.array) -> np.array:
+    def push_vmid(self, hid: int, vmids: np.array, cpu_impt: float, mem_impt: float) -> np.array:
         ejected_vmids = list()
         ejected_vm_nums = []
         for vmid in vmids:
@@ -474,9 +482,7 @@ class BalCon2(Algorithm):
         else:
             for i, vmid in enumerate(ejected_vmids.copy()):
                 self.asg.include(vmid, hid, ejected_vm_nums[i])
-                ejected_vmids.remove(vmid)
 
-        if len(ejected_vmids) == 0:
             return []
 
         residue = []
@@ -485,7 +491,16 @@ class BalCon2(Algorithm):
                 self.asg.include(vmid, hid, numas)
             else:
                 residue.append(vmid)
-        return residue
+
+        candi_degree = np.sum(self.asg.normalize(self.asg.required_nv_nr_all[residue]) * np.array([cpu_impt, mem_impt]))
+        target_degree = np.sum(self.asg.normalize(np.array([self.target_flavor.cpu, self.target_flavor.mem]) * np.array([cpu_impt, mem_impt])))
+
+        # 如果虚机组合>flavor，则直接restore，因为从backup到host choose_vm这段里面没有对其他host执行include和exclude
+        if candi_degree > target_degree:
+            self.asg.restore()
+            return []
+        else:
+            return residue
 
     def solve_(self) -> Mapping:
         # 可选择的目标宿主机id
@@ -509,11 +524,14 @@ class BalCon2(Algorithm):
             vmids = self.choose_vms_to_try(hid)
             # vmids = self.clear_host(hid)
             # 在可选择的目标宿主机上放置虚机
-            place_bool = self.placer.place_vmids(vmids, allowed_hids)
+            if len(vmids) == 0:
+                place_bool = False
+            else:
+                place_bool = self.placer.place_vmids(vmids, allowed_hids)
+
             if place_bool:
-                env_new = copy.deepcopy(self.asg.env)
-                env_new.mapping.mapping = self.asg.mapping
-                env_new.mapping.numas = self.asg.numas
+                env_new = Environment(self.asg.env.hosts, self.asg.env.vms, Mapping(copy.deepcopy(self.asg.mapping), copy.deepcopy(self.asg.numas)))
+                # env_new = copy.deepcopy(self.asg.env)
                 asg_new = Assignment(env_new, self.asg.settings)
                 flavor_count_new = asg_new.fill(list(self.asg.hids), self.target_flavor)
                 if flavor_count_new <= flavor_count_old:

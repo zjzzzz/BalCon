@@ -207,36 +207,36 @@ if __name__ == '__main__':
     candi_exp = random.sample(range(100), 20)
     begin = time.time()
     result = []
-    # results = [[] for _ in range(5)]
-    # threads = []
-    #
-    # for layer in range(1, 6):
-    #     thread = threading.Thread(target=task, args=(layer, results))
-    #     thread.start()
-    #     threads.append(thread)
-    #
-    # # 等待所有线程执行完成
-    # for thread in threads:
-    #     thread.join()
-    #
-    # for layer_result in results:
-    #     result.extend(layer_result)
+    results = [[] for _ in range(5)]
+    threads = []
 
-    for layer in range(3, 6):
-        # layer = 2
-        # flavor = VM
-        # flavor.cpu = 8
-        # flavor.mem = 16 * 1024
-        # flavor.numa = 4
-        for j, flavor in enumerate(flavors):
-            for i in range(100):
-            # i = 7
-                print("-----------------{}th-layer-{}th-flavor-{}th-num------------------".format(layer, j, i))
-                # layer = 1
-                # flavor = candi_flavors[1]
-                # i = 42
-                init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon2'], targetVM=flavor, time_limit=30, wa=1, wm=2, max_layer=layer)
-                result.append([i, layer, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory, migrated_count])
+    for layer in range(1, 6):
+        thread = threading.Thread(target=task, args=(layer, results))
+        thread.start()
+        threads.append(thread)
+
+    # 等待所有线程执行完成
+    for thread in threads:
+        thread.join()
+
+    for layer_result in results:
+        result.extend(layer_result)
+
+    # for layer in range(3, 6):
+    #     # layer = 2
+    #     # flavor = VM
+    #     # flavor.cpu = 8
+    #     # flavor.mem = 16 * 1024
+    #     # flavor.numa = 4
+    #     for j, flavor in enumerate(flavors):
+    #         for i in range(100):
+    #         # i = 7
+    #             print("-----------------{}th-layer-{}th-flavor-{}th-num------------------".format(layer, j, i))
+    #             # layer = 1
+    #             # flavor = candi_flavors[1]
+    #             # i = 42
+    #             init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon2'], targetVM=flavor, time_limit=30, wa=1, wm=2, max_layer=layer)
+    #             result.append([i, layer, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory, migrated_count])
     end = time.time()
     print("spend {}".format(end-begin))
     #
@@ -247,6 +247,10 @@ if __name__ == '__main__':
     result_df["add_flavor_num"] = result_df["after_flavor_num"] - result_df["init_flavor_num"]
     grouped = result_df.groupby("max_layer").mean()
 
+    grouped2 = result_df.groupby(["max_layer", "cpu", "mem", "numa"]).mean()
+
+    a = result_df[result_df["cpu"]>=8]
+    grouped3 = a.groupby(["exp_id", "max_layer"]).mean()
     result_df.to_excel("max_layer_data.xlsx")
     print(grouped)
 
