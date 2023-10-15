@@ -2,7 +2,7 @@ from assignment import Assignment
 from environment import Environment, Settings, Mapping
 from algorithm import Algorithm
 from utils import AttemptResult
-from environment import VM
+from environment import VM, Resources
 import copy
 
 import numpy as np
@@ -243,6 +243,25 @@ class ForceFit:
         second_key = self.asg.required_nv_nr_all[vmids, 1]
         return vmids[np.lexsort((second_key, first_key))]
 
+    def cal_vm_local_metric(self, vmids: List, required_host_nh: np.array, cpu_impt: float, mem_impt: float, numa_num: int) -> np.array:
+        required_nv_nr_3d = self.asg.get_require_nv_3d(vmids)
+        required_after_migrate = required_host_nh - required_nv_nr_3d
+        required_after_migrate[required_after_migrate < 0] = 0
+
+        normalize_nh_before = self.asg.normalize(required_host_nh)
+        normalize_before_degree = normalize_nh_before[:, Resources.CPU] * cpu_impt + normalize_nh_before[:, Resources.MEM] * mem_impt
+        before_degree = np.sum(np.sort(normalize_before_degree)[:numa_num])
+
+        normalize_nh_after = self.asg.normalize(required_after_migrate)
+        normalize_after_degree = normalize_nh_after[:, :, Resources.CPU] * cpu_impt + normalize_nh_after[:, :, Resources.MEM] * mem_impt
+        after_degree = np.sum(np.sort(normalize_after_degree, axis=1)[:, :numa_num], axis=1)
+        vm_local_metric = np.exp(after_degree - before_degree)
+
+        # vm_migrate_cost = np.sum(self.asg.normalize(self.asg.required_nv_nr_all[vmids]) * np.array([cpu_impt, mem_impt]), axis=1)
+        # vm_local_metric = vm_local_metric*vm_migrate_cost
+
+        return vm_local_metric
+
     def push_vmid(self, in_vmid: int, hid: int, vmids: np.array) -> np.array:
         ejected_vmids = list()
         ejected_vm_nums = []
@@ -300,6 +319,89 @@ class BalCon(Algorithm):
         first_key = self.initial_memory_nh[hids]
         second_key = np.sum(self.asg.occupied_nh_nr, axis=1)[hids, 1]
         return hids[np.lexsort((second_key, first_key))[0]]
+
+    def choose_vms_to_try(self, hid: int) -> np.array:
+        # 计算需求资源
+        required_nh_nr = self.asg.cal_required_nh(self.target_flavor)
+        normalize_required = self.asg.normalize(required_nh_nr)
+        impt = np.sum(normalize_required[hid], axis=0) / (np.sum(normalize_required[hid]) + 0.0001)
+        cpu_impt, mem_impt = impt[0], impt[1]
+
+        # 对虚机规格筛选，大于flavor的不考虑
+        vmids_hid = self.asg.get_vmids_on_hid(hid)
+        vms_normalize = self.asg.normalize(self.asg.required_nv_nr_all[vmids_hid])
+        vm_flavor = np.sum(vms_normalize * np.array([cpu_impt, mem_impt]), axis=1)
+        # vms_normalize[:, Resources.CPU] * cpu_impt + \
+        #         vms_normalize[:, Resources.MEM] * mem_impt
+
+        target_flavor_norm = self.asg.normalize(np.array([self.target_flavor.cpu, self.target_flavor.mem]))
+        smaller_flavor_ids = vm_flavor < np.sum(target_flavor_norm * np.array([cpu_impt, mem_impt]))
+        # vmids_filter = vmids_hid[smaller_flavor_ids]
+        vmids_filter = vmids_hid
+        if len(vmids_filter) == 0:
+            return []
+
+        # 虚机迁移后，判断宿主机上需求资源变化，加权求和，考虑numa
+        vm_local_metric = self.placer.cal_vm_local_metric(vmids_filter, required_nh_nr[hid], cpu_impt, mem_impt, self.target_flavor.numa)
+
+        flavor_key = vm_flavor
+        migrate_key = (self.asg.init_mapping == self.asg.mapping)[vmids_filter]
+        # 对虚机进行排序（优先选择迁过来的虚机）
+        vm_sort_ids = np.lexsort((migrate_key, vm_local_metric, flavor_key))
+        vmids_sort = vmids_filter[vm_sort_ids]
+
+        # 按顺序选择虚机，直至覆盖required_nh_nr
+        vm_eliminate_list = self.push_vmid(hid, vmids_sort, cpu_impt, mem_impt)
+
+        return vm_eliminate_list
+
+    def push_vmid(self, hid: int, vmids: np.array, cpu_impt: float, mem_impt: float) -> np.array:
+        ejected_vmids = list()
+        ejected_vm_nums = []
+        for vmid in vmids:
+            # if self.asg.backup_mapping[vmid] != self.asg.mapping[vmid] or np.any(self.asg.backup_numas[vmid] != self.asg.numas[vmid]):
+            #     continue
+            ejected_vmids.append(vmid)
+            ejected_vm_nums.append(copy.deepcopy(self.asg.numas[vmid]))
+            self.asg.exclude(vmid)
+            if self.asg.is_feasible_flavor(hid, self.target_flavor):
+                break
+
+        if self.asg.is_feasible_flavor(hid, self.target_flavor):
+            self.asg.fill_one(hid, self.target_flavor)
+        else:
+            for i, vmid in enumerate(ejected_vmids.copy()):
+                self.asg.include(vmid, hid, ejected_vm_nums[i])
+
+            return []
+
+        residue = []
+        for vmid, numas in zip(ejected_vmids[::-1], ejected_vm_nums[::-1]):
+            if self.asg.is_feasible_numa_index(vmid, hid, numas):
+                self.asg.include(vmid, hid, numas)
+            else:
+                residue.append(vmid)
+
+        # 选择的虚机组合要求不超过flavor，相当于剪枝
+        candi_degree = np.sum(self.asg.normalize(self.asg.required_nv_nr_all[residue]) * np.array([cpu_impt, mem_impt]))
+        target_degree = np.sum(self.asg.normalize(np.array([self.target_flavor.cpu, self.target_flavor.mem]) * np.array([cpu_impt, mem_impt])))
+
+        residue_cpu = np.sum(self.asg.required_nv_nr_all[residue, Resources.CPU])
+        residue_mem = np.sum(self.asg.required_nv_nr_all[residue, Resources.MEM])
+        target_cpu = self.target_flavor.cpu
+        target_mem = self.target_flavor.mem
+
+        # 如果虚机组合>flavor，则直接restore，因为从backup到host choose_vm这段里面没有对其他host执行include和exclude
+        # if residue_cpu > target_cpu or residue_mem > target_mem or (
+        #         residue_cpu == target_cpu and residue_mem == target_mem):
+
+        # if candi_degree > target_degree:
+        #     self.asg.restore()
+        #     return []
+        # else:
+        #     return residue
+
+        return residue
 
     def log_result(self, result: AttemptResult, hid: int) -> None:
         self.log(f'try host {hid:<5}\t'

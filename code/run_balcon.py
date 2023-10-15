@@ -205,7 +205,7 @@ if __name__ == '__main__':
 
     result_df["add_flavor_num"] = result_df["after_flavor_num"] - result_df["init_flavor_num"]
     grouped = result_df.groupby(["cpu", "mem", "numa"]).mean()
-
+    grouped2 = result_df.groupby(["example_id", "cpu", "mem", "numa"]).mean()
     if NUMA_BOOL:
         result_df.to_excel("balcon_numa.xlsx")
     else:

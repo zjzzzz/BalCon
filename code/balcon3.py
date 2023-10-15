@@ -195,9 +195,9 @@ class ForceFit:
     def choose_hid_to_try(self, hids: np.array) -> np.array:
         required_nh_nr = self.asg.cal_required_nh(self.target_flavor)
         required_nh_nr_temp = self.asg.normalize(required_nh_nr)
-        res_sum = np.sum(required_nh_nr_temp, axis=1)
-        weight_sum = (res_sum[:, Resources.CPU][:, np.newaxis] * required_nh_nr_temp[:, :, Resources.CPU] +
-                  res_sum[:, Resources.MEM][:, np.newaxis] * required_nh_nr_temp[:, :, Resources.MEM]) / np.sum(res_sum, axis=1)[:, np.newaxis]
+        res_sum = np.sum(required_nh_nr_temp, axis=(0, 1))
+        weight_sum = (res_sum[Resources.CPU] * required_nh_nr_temp[:, :, Resources.CPU] +
+                  res_sum[Resources.MEM] * required_nh_nr_temp[:, :, Resources.MEM]) / sum(res_sum)
         # arr_sort = np.sort(weight_sum, axis=1)
         degree = np.sum(weight_sum, axis=1)
 
@@ -406,9 +406,9 @@ class BalCon3(Algorithm):
     def choose_hid_to_try(self, hids: np.array) -> int:
         required_nh_nr = self.asg.cal_required_nh(self.target_flavor)
         required_nh_nr_temp = self.asg.normalize(required_nh_nr)
-        res_sum = np.sum(required_nh_nr_temp, axis=1)
-        weight_sum = (res_sum[:, Resources.CPU][:, np.newaxis] * required_nh_nr_temp[:, :, Resources.CPU] +
-                  res_sum[:, Resources.MEM][:, np.newaxis] * required_nh_nr_temp[:, :, Resources.MEM]) / np.sum(res_sum, axis=1)[:, np.newaxis]
+        res_sum = np.sum(required_nh_nr_temp, axis=(0, 1))
+        weight_sum = (res_sum[Resources.CPU] * required_nh_nr_temp[:, :, Resources.CPU] +
+                  res_sum[Resources.MEM] * required_nh_nr_temp[:, :, Resources.MEM]) / sum(res_sum)
         # arr_sort = np.sort(weight_sum, axis=1)
         degree = np.sum(weight_sum, axis=1)
 
