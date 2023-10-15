@@ -4,9 +4,6 @@
 # !!! Place before import numpy !!!
 import copy
 import os
-import time
-import json
-import asyncio
 os.environ["OMP_NUM_THREADS"] = "1"
 
 import argparse
@@ -14,14 +11,14 @@ import logging
 import pathlib
 from datetime import datetime
 from time import perf_counter
-import numpy as np
-import random
+from generate import predefined_flavors, generate_vms
+import time
 import pandas as pd
-import threading
 
 from environment import Environment, Settings
 from balcon import BalCon
 from balcon2 import BalCon2
+from balcon3 import BalCon3
 from findf import FinDf
 from findef2 import FinDf2
 from firstfit import FirstFit
@@ -30,7 +27,6 @@ from solver import FlowModel, AllocationModel, FlowModelRelaxed
 from sercon import SerCon, SerConOriginal
 from environment import VM
 from assignment  import Assignment
-from generate import predefined_flavors, generate_vms
 from global_variables import *
 
 
@@ -121,20 +117,21 @@ def run_from_command_line() -> None:
     )
     
     run_algorithms(args.algorithm, settings, env,  output_dir)
-    
 
-def run_example(problem_path: str, algorithm: str, targetVM: VM=None, time_limit:int =60, wa:float = 1, wm:int = 2, max_layer: int = 5):
+
+def run_example(problem_path: str, algorithm: str, targetVM: VM = None, time_limit: int = 60, wa: float = 1,
+                wm: int = 2, max_layer: int = 5, induced_degree: float=1.0, induced_bool: bool=True):
     env = Environment.load(problem_path)
 
     settings = Settings(tl=time_limit, wa=wa, wm=wm, max_layer=max_layer)
 
     t_start = perf_counter()
     if targetVM:
-        solution = algorithm(env,settings,targetVM).solve()
+        solution = algorithm(env, settings, targetVM, induced_degree, induced_bool).solve()
     else:
         solution = algorithm(env, settings).solve()
     t = perf_counter() - t_start
-    
+
     score = Score(env, settings)
 
     new_env = copy.deepcopy(env)
@@ -152,44 +149,22 @@ def run_example(problem_path: str, algorithm: str, targetVM: VM=None, time_limit
             Objective function:                 {score.objective(solution)}
             Number of hosts in initial mapping: {score.savings_score(Solution(mapping=score.env.mapping))}
             Number of hosts in final mapping:   {score.savings_score(solution)}
-            Number of released hosts:           {score.savings_score(Solution(mapping=score.env.mapping))-score.savings_score(solution)}
+            Number of released hosts:           {score.savings_score(Solution(mapping=score.env.mapping)) - score.savings_score(solution)}
             Number of flavors in initial mapping:   {init_flavor_num}
             Number of flavors in final mapping:   {final_flavor_num}
             Number of increased flavors:   {final_flavor_num - init_flavor_num}
             Amount of migrated memory:          {score.migration_score(solution)} TiB
             Amount of migrated VM: {score.migration_count(solution)}\n"""
 
-    # print(results)
+    print(results)
     return init_flavor_num, final_flavor_num, score.migration_score(solution), score.migration_count(solution)
-
-
-# 定义一个函数，作为线程的目标函数
-def task(layer, result_list, numa_bool):
-    flavors = predefined_flavors(numa_bool)
-
-    for j, flavor in enumerate(flavors):
-        for i in range(100):
-            # i = 7
-            print("-----------------{}th-layer-{}th-flavor-{}th-num------------------".format(layer, j, i))
-            # layer = 1
-            # flavor = candi_flavors[1]
-            # i = 42
-            if numa_bool:
-                problem_path = './data/synthetic/{}th-numa.json'.format(i)
-            else:
-                problem_path = './data/synthetic/{}th-no-numa.json'.format(i)
-            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(
-                problem_path=problem_path, algorithm=registry['balcon2'],
-                targetVM=flavor, time_limit=30, wa=1, wm=2, max_layer=layer)
-            result_list[layer-1].append(
-                [i, layer, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory,
-                 migrated_count])
 
 
 if __name__ == '__main__':
     registry = {
             'balcon': BalCon,
             'balcon2': BalCon2,
+            'balcon3': BalCon3,
             'findf': FinDf,
             'findf2': FinDf2,
             'sercon-modified': SerCon,
@@ -204,70 +179,41 @@ if __name__ == '__main__':
     # flavor.cpu = 8
     # flavor.mem = 16 * 1024
     # flavor.numa = 4
-    # run_from_command_line()
-
-    rng = np.random.default_rng(0)
-
-    # 只选择16c和32c的flavor进行测试，16c是1 numa 32c是2 numa
-    flavors = predefined_flavors(NUMA_BOOL)[-4:]
-    # candi_flavor_id = random.sample(range(len(flavors)), 10)
-    # candi_flavor = [flavors[id] for id in candi_flavor_id]
-    # candi_exp = random.sample(range(100), 20)
-    begin = time.time()
     result = []
-    # results = [[] for _ in range(5)]
-    # threads = []
+    flavors = predefined_flavors(NUMA_BOOL)[-4:]
+    begin = time.time()
+    # run_from_command_line()
+    for j, flavor in enumerate(flavors):
+        print("---------------------cpu:{}-mem:{}-numa:{}---------------------".format(flavor.cpu, flavor.mem, flavor.numa))
+        for i in range(10):
+            print("-----------------{}th-example {}th-flavor------------------".format(i, j))
+        # i = 2
+            if NUMA_BOOL:
+                problem_path = './data/synthetic/{}th-numa.json'.format(i)
+            else:
+                problem_path = './data/synthetic/{}th-no-numa.json'.format(i)
 
-    # for layer in range(1, 6):
-    #     thread = threading.Thread(target=task, args=(layer, results))
-    #     thread.start()
-    #     threads.append(thread)
-    #
-    # # 等待所有线程执行完成
-    # for thread in threads:
-    #     thread.join()
-    #
-    # for layer_result in results:
-    #     result.extend(layer_result)
+            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path=problem_path, algorithm=registry['balcon3'], targetVM=flavor, time_limit=1, wa=1, wm=2, max_layer=2, induced_degree=1, induced_bool=True)
+            result.append(
+                [i, 3, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory,
+                 migrated_count])
 
-    for layer in range(1, 6):
-        # layer = 2
-        # flavor = VM
-        # flavor.cpu = 8
-        # flavor.mem = 16 * 1024
-        # flavor.numa = 4
-        for j, flavor in enumerate(flavors):
-            for i in range(10):
-            # i = 7
-                print("-----------------{}th-layer-{}th-flavor-{}th-num------------------".format(layer, j, i))
-                if NUMA_BOOL:
-                    problem_path = './data/synthetic/{}th-numa.json'.format(i)
-                else:
-                    problem_path = './data/synthetic/{}th-no-numa.json'.format(i)
-                # layer = 1
-                # flavor = candi_flavors[1]
-                # i = 42
-                init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path=problem_path, algorithm=registry['balcon2'], targetVM=flavor, time_limit=30, wa=1, wm=2, max_layer=layer)
-                result.append([i, layer, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory, migrated_count])
     end = time.time()
     print("spend {}".format(end-begin))
-    #
+
     result_df = pd.DataFrame(result)
-    columns = ["exp_id", "max_layer", "cpu", "mem", "numa", "init_flavor_num", "after_flavor_num", "migrated_memory", "migrated_count"]
+    columns = ["example_id", "max_layer", "cpu", "mem", "numa", "init_flavor_num", "after_flavor_num", "migrated_memory", "migrated_count"]
     result_df.columns = columns
 
     result_df["add_flavor_num"] = result_df["after_flavor_num"] - result_df["init_flavor_num"]
-    grouped = result_df.groupby("max_layer").mean()
-
-    grouped2 = result_df.groupby(["max_layer", "cpu", "mem", "numa"]).mean()
-
-    a = result_df[result_df["cpu"]>=8]
-    grouped3 = a.groupby(["exp_id", "max_layer"]).mean()
+    grouped = result_df.groupby(["example_id", "cpu", "mem", "numa"]).mean()
+    grouped = result_df.groupby(["cpu", "mem", "numa"]).mean()
     if NUMA_BOOL:
-        result_df.to_excel("max_layer_data_numa.xlsx")
+        result_df.to_excel("balcon2_numa.xlsx")
     else:
-        result_df.to_excel("max_layer_data_no_numa.xlsx")
+        result_df.to_excel("balcon2_no_numa.xlsx")
     print(grouped)
+
 
 
 

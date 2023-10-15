@@ -34,8 +34,9 @@ class FirstFit(Algorithm):
         asg.clear()
 
         for vmid in self.asg.vmids:
-            a = np.flatnonzero(asg.is_feasible_nh(vmid))
-            for hid in np.flatnonzero(asg.is_feasible_nh(vmid)):
+            hids = np.flatnonzero(asg.is_feasible_nh(vmid))
+            # np.random.shuffle(hids)
+            for hid in hids:
                 asg.include(vmid, hid)
                 break
             if not asg.is_assigned(vmid):

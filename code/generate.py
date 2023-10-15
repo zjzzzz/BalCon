@@ -11,12 +11,28 @@ from firstfit import FirstFit
 from global_variables import *
 
 
-def predefined_flavors() -> List[VM]:
+def predefined_flavors(numa_bool: bool) -> List[VM]:
     """ Predefined set of flavors used in synthetic problem instances """
-    flavor_list = []
-    for cpu, ratio, numa in product(FLAVORS_CPU, FLAVORS_RATIO, NUMA):
-        if cpu % numa == 0:
-            flavor_list.append(VM(cpu, cpu * ratio * 1024, numa))
+    flavor_numa_list = [VM(1, 1*1024, 1), VM(1, 2*1024, 1), VM(1, 4*1024, 1),
+                   VM(2, 4*1024, 1), VM(2, 8*1024, 1),
+                   VM(4, 8*1024, 1), VM(4, 16*1024, 1),
+                   VM(8, 16*1024, 1), VM(8, 32*1024, 1),
+                   VM(16, 32*1024, 1), VM(16, 64*1024, 1),
+                   VM(32, 64*1024, 2), VM(32, 128*1024, 2)]
+
+    flavor_no_numa_list = [VM(1, 1*1024, 1), VM(1, 2*1024, 1), VM(1, 4*1024, 1),
+                   VM(2, 4*1024, 1), VM(2, 8*1024, 1),
+                   VM(4, 8*1024, 1), VM(4, 16*1024, 1),
+                   VM(8, 16*1024, 1), VM(8, 32*1024, 1),
+                   VM(16, 32*1024, 1), VM(16, 64*1024, 1),
+                   VM(32, 64*1024, 1), VM(32, 128*1024, 1)]
+    # for cpu, ratio, numa in product(FLAVORS_CPU, FLAVORS_RATIO, NUMA):
+    #     if cpu % numa == 0:
+    #         flavor_list.append(VM(cpu, cpu * ratio * 1024, numa))
+    if numa_bool:
+        flavor_list = flavor_numa_list
+    else:
+        flavor_list = flavor_no_numa_list
     return flavor_list
 
 
@@ -53,24 +69,24 @@ def determine_host_size(vms: List[VM]) -> Tuple[int, int]:
     return (np.round(required_nr / n_nr[resource]) // HOST_NUMA + 1) * HOST_NUMA
 
 
-def generate_vms(n_vms: int, rng: Generator) -> List[VM]:
+def generate_vms(n_vms: int, numa_bool: bool, rng: Generator) -> List[VM]:
     """
     Generate random distribution on the set of predefined flavors
     such that small flavors are more likely
     than sample <n_vms> VMs from the distribution
     """
-    flavors = predefined_flavors()
+    flavors = predefined_flavors(numa_bool)
     cpu_nf = np.array([flavor.cpu for flavor in flavors])
     weights = -np.log(rng.random(len(flavors))) / cpu_nf
     weights /= np.sum(weights)
     return rng.choice(flavors, n_vms, p=weights)
 
 
-def generate_instance(n_vms: int, rng: Generator) -> Environment:
+def generate_instance(n_vms: int, n_host: int, numa_bool: bool, rng: Generator) -> Environment:
     """ Generate problem instances with heavy resource imbalance """
-    vms = generate_vms(n_vms, rng)
-    cpu, mem = determine_host_size(vms)
-    # cpu, mem = HOST_SIZE[0], HOST_SIZE[1]
+    vms = generate_vms(n_vms, numa_bool, rng)
+    # cpu, mem = determine_host_size(vms)
+    cpu, mem = HOST_SIZE[0], HOST_SIZE[1]
     hosts = [Host(cpu, mem, HOST_NUMA) for _ in range(n_vms)]
 
     env = Environment(hosts=hosts, vms=vms, mapping=Mapping.emtpy(n_vms, [vm.numa for vm in vms]))
@@ -85,18 +101,22 @@ def generate_instance(n_vms: int, rng: Generator) -> Environment:
     return env
 
 
-def generate_synthetic_dataset(n_instances: int, path: str) -> None:
+def generate_synthetic_dataset(n_instances: int, numa_bool: bool, path: str) -> None:
     path = pathlib.Path(path)
     path.mkdir(exist_ok=True, parents=True)
 
     rng = np.random.default_rng(0)
     for i in trange(n_instances):
         n_vms = rng.integers(N_VMS_RANGE[0], N_VMS_RANGE[1] + 1)
-        env = generate_instance(n_vms=n_vms, rng=rng)
+        n_hosts = HOST_NUM
+        env = generate_instance(n_vms=n_vms, n_host=n_hosts, numa_bool=numa_bool, rng=rng)
         n_vms = len(env.vms)
-        problem_path = path / f'{i}th-numa.json'
+        if numa_bool:
+            problem_path = path / f'{i}th-numa.json'
+        else:
+            problem_path = path / f'{i}th-no-numa.json'
         env.save(problem_path)
 
 
 if __name__ == '__main__':
-    generate_synthetic_dataset(100, './data/synthetic')
+    generate_synthetic_dataset(10, NUMA_BOOL, './data/synthetic')

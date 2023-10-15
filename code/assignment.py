@@ -57,6 +57,13 @@ class Assignment:
         self.backup_occupied_nh_nr_true = None
         self.backup_required_nh_nr = None
 
+        self.backup_mapping_temp = None
+        self.backup_numas_temp = None
+        self.backup_remained_nh_nr_temp = None
+        self.backup_occupied_nh_nr_temp = None
+        self.backup_occupied_nh_nr_true_temp = None
+        self.backup_required_nh_nr_temp = None
+
         total_nr = np.sum(self.required_nv_nr_all, axis=0)
         # 每个vm的得分 cpu/总cpu + mem/总mem
         self.size_nv = np.sum(self.required_nv_nr_all / total_nr, axis=1)
@@ -143,7 +150,16 @@ class Assignment:
     def default_include_numa(self, vmid: int, hid: int) -> List[int]:
         assert self.is_feasible(vmid, hid)
         numas = []
-        for numa_id in np.flatnonzero(self.is_feasible_numa(vmid, hid)):
+        # 筛选能够放下的numa
+        candi_numa_ids = np.flatnonzero(self.is_feasible_numa(vmid, hid))
+        # 选择numa上剩余资源最多的，避免出现某个numa有资源而另一个没有资源导致的资源碎片。
+        norm_numas = self.normalize(self.remained_nh_nr[hid][candi_numa_ids])
+        norm_sum = np.sum(norm_numas, axis=1)
+        sort_idex = np.argsort(norm_sum)[::-1]
+        sort_numa_ids = candi_numa_ids[sort_idex]
+        if len(sort_numa_ids) > 1:
+            a = 5
+        for numa_id in sort_numa_ids:
             if len(numas) == self.required_nv_numa[vmid]:
                 break
             else:
@@ -169,12 +185,30 @@ class Assignment:
         # if self.required_nh_nr is not None:
         #     self.backup_required_nh_nr = self.required_nh_nr.copy()
 
+    def backup_temp(self) -> None:
+        self.backup_mapping_temp = self.mapping.copy()
+        self.backup_numas_temp = self.numas.copy()
+        self.backup_occupied_nh_nr_temp = self.occupied_nh_nr.copy()
+        self.backup_occupied_nh_nr_true_temp = self.occupied_nh_nr_true.copy()
+        self.backup_remained_nh_nr_temp = self.remained_nh_nr.copy()
+        # if self.required_nh_nr is not None:
+        #     self.backup_required_nh_nr = self.required_nh_nr.copy()
+
     def restore(self) -> None:
         self.mapping = self.backup_mapping.copy()
         self.numas = self.backup_numas.copy()
         self.occupied_nh_nr = self.backup_occupied_nh_nr.copy()
         self.occupied_nh_nr_true = self.backup_occupied_nh_nr_true.copy()
         self.remained_nh_nr = self.backup_remained_nh_nr.copy()
+        # if self.backup_required_nh_nr is not None:
+        #     self.required_nh_nr = self.backup_required_nh_nr.copy()
+
+    def restore_temp(self) -> None:
+        self.mapping = self.backup_mapping_temp.copy()
+        self.numas = self.backup_numas_temp.copy()
+        self.occupied_nh_nr = self.backup_occupied_nh_nr_temp.copy()
+        self.occupied_nh_nr_true = self.backup_occupied_nh_nr_true_temp.copy()
+        self.remained_nh_nr = self.backup_remained_nh_nr_temp.copy()
         # if self.backup_required_nh_nr is not None:
         #     self.required_nh_nr = self.backup_required_nh_nr.copy()
 
@@ -338,10 +372,11 @@ class Assignment:
         weight_sum = (res_sum[Resources.CPU] * required_nh_temp[:, :, Resources.CPU] +
                   res_sum[Resources.MEM] * required_nh_temp[:, :, Resources.MEM]) / sum(res_sum)
 
-        arr_sort = np.sort(weight_sum, axis=1)
-        if numa_num == 0:
-            numa_num = arr_sort.shape[1]
-        degree = np.sum(arr_sort[:, :numa_num], axis=1)
+        # arr_sort = np.sort(weight_sum, axis=1)
+        # if numa_num == 0:
+        #     numa_num = arr_sort.shape[1]
+        # degree = np.sum(arr_sort[:, :numa_num], axis=1)
+        degree = np.sum(weight_sum, axis=1)
         return self.max_min(degree)
 
     def cal_host_induced_degree(self, hids: List, targetVM: VM) -> np.array:

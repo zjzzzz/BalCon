@@ -26,6 +26,7 @@ from solver import FlowModel, AllocationModel, FlowModelRelaxed
 from sercon import SerCon, SerConOriginal
 from environment import VM
 from assignment  import Assignment
+from global_variables import *
 
 
 def get_time():
@@ -177,14 +178,20 @@ if __name__ == '__main__':
     # flavor.mem = 16 * 1024
     # flavor.numa = 4
     result = []
+    flavors = predefined_flavors(NUMA_BOOL)[-4:]
     begin = time.time()
     # run_from_command_line()
-    for j, flavor in enumerate(predefined_flavors()):
+    for j, flavor in enumerate(flavors):
         print("---------------------cpu:{}-mem:{}-numa:{}---------------------".format(flavor.cpu, flavor.mem, flavor.numa))
-        for i in range(100):
+        for i in range(10):
             print("-----------------{}th-example {}th-flavor------------------".format(i, j))
         # i = 2
-            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path='./data/synthetic/{}th-numa.json'.format(i), algorithm=registry['balcon'], targetVM=flavor, time_limit=1, wa=1, wm=2, max_layer=3)
+            if NUMA_BOOL:
+                problem_path = './data/synthetic/{}th-numa.json'.format(i)
+            else:
+                problem_path = './data/synthetic/{}th-no-numa.json'.format(i)
+
+            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path=problem_path, algorithm=registry['balcon'], targetVM=flavor, time_limit=1, wa=1, wm=2, max_layer=3)
             result.append(
                 [i, 3, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory,
                  migrated_count])
@@ -199,7 +206,10 @@ if __name__ == '__main__':
     result_df["add_flavor_num"] = result_df["after_flavor_num"] - result_df["init_flavor_num"]
     grouped = result_df.groupby(["cpu", "mem", "numa"]).mean()
 
-    result_df.to_excel("balcon.xlsx")
+    if NUMA_BOOL:
+        result_df.to_excel("balcon_numa.xlsx")
+    else:
+        result_df.to_excel("balcon_no_numa.xlsx")
     print(grouped)
 
 

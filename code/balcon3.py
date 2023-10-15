@@ -42,7 +42,7 @@ class Stash:
 
     def add_vmid(self, vmid, parent_layer: int) -> None:
         # 根据虚机得分加入最大堆
-        heapq.heappush(self.vmids, (self.asg.size_nv[vmid], vmid))
+        heapq.heappush(self.vmids, (-1*self.asg.size_nv[vmid], vmid))
         # stack中的总资源
         self.form += self.asg.required_nv_nr_all[vmid]
         self.vm_layers[vmid] = parent_layer+1
@@ -97,7 +97,7 @@ def tan(v: np.array) -> float:
 
 
 class ForceFit:
-    def __init__(self, asg: Assignment, induced_degree: float, induced_bool: bool, max_layer=5):
+    def __init__(self, asg: Assignment, targetVM: VM, induced_degree: float, induced_bool: bool, max_layer=5):
         self.asg = asg
         self.coin = Coin()
         self.force_steps_counter = 0
@@ -105,6 +105,7 @@ class ForceFit:
         self.induced_degree = induced_degree
         self.induced_bool = induced_bool
         self.max_layer = max_layer
+        self.target_flavor=targetVM
 
     def place_vmids(self, vmids: List[int], hids: List[int]) -> bool:
         stash = Stash(asg=self.asg, vmids=vmids)
@@ -120,73 +121,90 @@ class ForceFit:
             elif situation == Situation.AMPLE:
                 self.best_fit(vmid, hids)
             else:
-                # if situation == Situation.BALANCED:
-                #     # 拥有最多的规格小于该虚机的宿主机
-                #     # hid = self.choose_hid_balanced(vmid, hids_filtered)
-                #     # hid = prohibitor.forbid_long_repeats(hids_filtered, hid)
-                #     vmids = self.choose_vmids_balanced(hid)
-                # else:
-                #     # hid = self.choose_hid_lopsided(vmid, hids_filtered)
-                #     # hid = prohibitor.forbid_long_repeats(hids_filtered, hid)
-                #     vmids = self.choose_vmids_lopsided(hid, vmid)
-                if self.induced_bool:
-                    self.induced_degree = self.asg.cal_induce_degree(hids, self.asg.env.vms[vmid], stash.get_form())
+                # self.asg.backup_temp()
+                # layers_temp = copy.deepcopy(stash.vm_layers)
+
                 hids_filtered = self.filter_hosts(vmid, hids)
-                hid = self.choose_hid_to_try(list(hids_filtered), self.asg.env.vms[vmid])
+                # 对剩余宿主机按flavor需求资源排序，排序靠前的宿主机，需求资源更多，即剩余资源更少
+                hids_sort_index = self.choose_hid_to_try(list(hids_filtered))
+                hids_sort = np.array(hids)[hids_sort_index]
+
                 required_nh_nv = self.asg.required_nv_nr[vmid] - self.asg.remained_nh_nr
                 required_nh_nv[required_nh_nv <= 0] = 0
-
                 normalize_required = self.asg.normalize(required_nh_nv)
-                impt = np.sum(normalize_required[hid], axis=0) / np.sum(normalize_required[hid])
-                cpu_impt, mem_impt = impt[0], impt[1]
 
-                vmids_migrate = []
-                # 对虚机规格筛选，大于vmid的不考虑
-                vmids_hid = self.asg.get_vmids_on_hid(hid)
-                vms_normalize = self.asg.normalize(self.asg.required_nv_nr_all[vmids_hid])
-                vm_flavor = np.sum(vms_normalize * np.array([cpu_impt, mem_impt]), axis=1)
-                    # vms_normalize[:, Resources.CPU] * cpu_impt + \
-                    #         vms_normalize[:, Resources.MEM] * mem_impt
-                # 虚机计算投影匹配度，计算虚机得分
+                # 通过虚机的迁移，把每次需要迁移的虚机规格逐渐减小，用更小的虚机去填充碎片资源
+                # 比如放进去一个4c4g的虚机，但是换出来1c2g和2c2g的虚机，代表宿主机上新增了1c的资源使用。
 
-                target_vm_norm = self.asg.normalize(self.asg.required_nv_nr_all[vmid])
-                smaller_flavor_ids = vm_flavor < np.sum(target_vm_norm * np.array([cpu_impt, mem_impt]))
-                vmids_filter = vmids_hid[smaller_flavor_ids]
-                # vmids_filter = vmids_hid
-                vm_local_metric = self.cal_vm_local_metric(vmids_filter, required_nh_nv[hid],
-                                                             cpu_impt, mem_impt, self.asg.env.vms[vmid].numa)
-                vm_global_metric = self.cal_vm_induce_metric(hid, vmids_filter, self.asg.env.vms[vmid], cpu_impt, mem_impt)
-                vm_metric = self.induced_degree * vm_global_metric + (1 / self.induced_degree) * vm_local_metric
+                swap_migrate_bool = False
+                for hid in hids_sort:
+                    # 有宿主机能通过swap把vmid放进去
+                    if swap_migrate_bool:
+                        break
 
-                flavor_key = vm_flavor[smaller_flavor_ids]
-                migrate_key = (self.asg.init_mapping == self.asg.mapping)[vmids_filter]
-                # smaller_flavor = np.any(self.asg.required_nv_nr_all[vmids_hid] > self.asg.required_nv_nr_all[vmid],
-                #                             axis=1)
-                # 对虚机进行逆序排序（优先选择迁过来的虚机）
-                vm_sort_ids = np.lexsort((migrate_key, vm_metric, flavor_key))
-# 宿主机排序根据需求资源少，正序选择、逆序选择
-# 虚机选择规格排序、numa权重，加和分布情况、是否迁移过来的
-# 选择目标宿主机
-# 虚机选择规格排序、numa权重，加和分布情况、是否迁移过来的
-# stash到目标宿主机：虚机迁移的时候，每个虚机cpu、内存 numa二维向量、欧式距离排序，选择宿主机上的numa（尽可能把宿主机上某个numa放满）
-                vmids_migrate = vmids_filter[vm_sort_ids]
+                    impt = np.sum(normalize_required[hid], axis=0) / np.sum(normalize_required[hid])
+                    cpu_impt, mem_impt = impt[0], impt[1]
 
-                residue = self.push_vmid(vmid, hid, vmids_migrate, cpu_impt, mem_impt)
-                stash.add(residue, stash.vm_layers[vmid])
-                for vmid_res in residue:
-                    if stash.vm_layers[vmid_res] > self.max_layer:
-                        return False
+                    # 迁移虚机筛选和排序
+                    vmids_migrate = self.choose_vms(hid, vmid, required_nh_nv, cpu_impt, mem_impt)
+
+                    # 迁出部分虚机以放入vmid，若无法实现则跳过这台宿主机
+                    residue = self.push_vmid(vmid, hid, vmids_migrate, cpu_impt, mem_impt)
+                    if len(residue) == 1 and residue[0] == vmid:
+                        continue
+                    else:
+                        swap_migrate_bool = True
+                        stash.add(residue, stash.vm_layers[vmid])
+                        for vmid_res in residue:
+                            if stash.vm_layers[vmid_res] > self.max_layer:
+                                return False
+
+                # 如果所有宿主机上都放不下vmid
+                if not swap_migrate_bool:
+                    return False
+
         return stash.is_empty()
 
-    def choose_hid_to_try(self, hids: np.array, flavor: VM) -> int:
-        # 计算需求资源
-        required_nh_nr = self.asg.cal_required_nh(flavor)
+    def choose_vms(self, hid: int, in_vmid: int, required_nh_nv: np.array, cpu_impt: float, mem_impt: float) -> np.array:
+        # 对虚机规格筛选，大于vmid的不考虑
+        vmids_hid = self.asg.get_vmids_on_hid(hid)
+        vms_normalize = self.asg.normalize(self.asg.required_nv_nr_all[vmids_hid])
+        vm_flavor = np.sum(vms_normalize * np.array([cpu_impt, mem_impt]), axis=1)
+        # vms_normalize[:, Resources.CPU] * cpu_impt + \
+        #         vms_normalize[:, Resources.MEM] * mem_impt
 
-        local_degree = self.asg.cal_host_required_degree(required_nh_nr[hids], flavor.numa)
-        global_degree = -1*self.asg.cal_host_induced_degree(hids, flavor)
-        degree = self.induced_degree*(global_degree) + (1/self.induced_degree) * local_degree
-        # first_key = np.sum(self.asg.required_nh_nr, axis=1)[hids, Resources.MEM]
-        return hids[np.argsort(degree)[0]]
+        target_vm_norm = self.asg.normalize(self.asg.required_nv_nr_all[in_vmid])
+        smaller_flavor_ids = vm_flavor < np.sum(target_vm_norm * np.array([cpu_impt, mem_impt]))
+        vmids_filter = vmids_hid[smaller_flavor_ids]
+        # vmids_filter = vmids_hid
+
+        # 虚机numa指标排序
+        vm_local_metric = self.cal_vm_local_metric(vmids_filter, required_nh_nv[hid],
+                                                   cpu_impt, mem_impt, self.asg.env.vms[in_vmid].numa)
+
+        flavor_key = vm_flavor[smaller_flavor_ids]
+        migrate_key = (self.asg.init_mapping == self.asg.mapping)[vmids_filter]
+        # smaller_flavor = np.any(self.asg.required_nv_nr_all[vmids_hid] > self.asg.required_nv_nr_all[vmid],
+        #                             axis=1)
+        # 对虚机进行逆序排序（优先选择迁过来的虚机）
+        vm_sort_ids = np.lexsort((migrate_key, vm_local_metric, flavor_key))
+        vmids_migrate = vmids_filter[vm_sort_ids]
+
+        return vmids_migrate
+
+    def choose_hid_to_try(self, hids: np.array) -> np.array:
+        required_nh_nr = self.asg.cal_required_nh(self.target_flavor)
+        required_nh_nr_temp = self.asg.normalize(required_nh_nr)
+        res_sum = np.sum(required_nh_nr_temp, axis=1)
+        weight_sum = (res_sum[:, Resources.CPU][:, np.newaxis] * required_nh_nr_temp[:, :, Resources.CPU] +
+                  res_sum[:, Resources.MEM][:, np.newaxis] * required_nh_nr_temp[:, :, Resources.MEM]) / np.sum(res_sum, axis=1)[:, np.newaxis]
+        # arr_sort = np.sort(weight_sum, axis=1)
+        degree = np.sum(weight_sum, axis=1)
+
+        second_key = degree[hids]
+        # 把vm优先放到需求资源多的宿主机上
+        return np.argsort(second_key)[::-1]
+
 
     def classify(self, hids: List[int], stash: Stash, vmid: int) -> Situation:
         # 有宿主机可以覆盖虚机
@@ -197,18 +215,6 @@ class ForceFit:
         hids_filtered = self.filter_hosts(vmid, hids)
         if len(hids_filtered) == 0:
             return Situation.IMPOSSIBLE
-
-        f_nr = stash.get_form() + self.asg.required_nv_nr_all[vmid]
-        rem_nh_nr = np.sum(self.asg.remained_nh_nr[hids], axis=1)
-        capacity = np.sum(np.amin(rem_nh_nr / f_nr, axis=1))
-        potential_capacity = np.amin(np.sum(rem_nh_nr, axis=0) / f_nr)
-
-        if potential_capacity < 1.0:
-            return Situation.IMPOSSIBLE
-        elif capacity >= 1.0 and capacity >= self.alpha * potential_capacity:
-            return Situation.BALANCED
-        else:
-            return Situation.LOPSIDED
 
     def select_tightest_hid(self, hids: np.array) -> int:
         load_nh = np.sum(
@@ -301,7 +307,7 @@ class ForceFit:
 
     def cal_vm_local_metric(self, vmids: List, required_host_nh: np.array, cpu_impt: float, mem_impt: float, numa_num: int) -> np.array:
         required_nv_nr_3d = self.asg.get_require_nv_3d(vmids)
-        required_after_migrate = required_host_nh-required_nv_nr_3d
+        required_after_migrate = required_host_nh - required_nv_nr_3d
         required_after_migrate[required_after_migrate < 0] = 0
 
         normalize_nh_before = self.asg.normalize(required_host_nh)
@@ -313,10 +319,10 @@ class ForceFit:
         after_degree = np.sum(np.sort(normalize_after_degree, axis=1)[:, :numa_num], axis=1)
         vm_local_metric = np.exp(after_degree - before_degree)
 
-        vm_migrate_cost = np.sum(self.asg.normalize(self.asg.required_nv_nr_all[vmids]) * np.array([cpu_impt, mem_impt]), axis=1)
-        vm_local_metric = vm_local_metric*vm_migrate_cost
+        # vm_migrate_cost = np.sum(self.asg.normalize(self.asg.required_nv_nr_all[vmids]) * np.array([cpu_impt, mem_impt]), axis=1)
+        # vm_local_metric = vm_local_metric*vm_migrate_cost
 
-        return vm_local_metric / np.abs(np.sum(vm_local_metric)+0.0001)
+        return vm_local_metric
 
     def cal_vm_induce_metric(self, hid: int, vmids: List, targetVM: VM, cpu_impt: float, mem_impt: float) -> np.array:
         remained_nh_nr_all = np.sum(self.asg.remained_nh_nr[hid], axis=0)
@@ -365,6 +371,13 @@ class ForceFit:
         candi_degree = np.sum(self.asg.normalize(self.asg.required_nv_nr_all[residue]) * np.array([cpu_impt, mem_impt]))
         target_degree = np.sum(self.asg.normalize(self.asg.required_nv_nr_all[in_vmid] * np.array([cpu_impt, mem_impt])))
 
+        residue_cpu = np.sum(self.asg.required_nv_nr_all[residue, Resources.CPU])
+        residue_mem = np.sum(self.asg.required_nv_nr_all[residue, Resources.MEM])
+        target_cpu = self.asg.required_nv_nr_all[in_vmid][Resources.CPU]
+        target_mem = self.asg.required_nv_nr_all[in_vmid][Resources.MEM]
+        # if residue_cpu > target_cpu or residue_mem > target_mem or (residue_cpu == target_cpu and residue_mem == target_mem):
+        #     self.asg.exclude(in_vmid)
+
         if candi_degree > target_degree:
             self.asg.exclude(in_vmid)
             for vmid, numas in zip(residue, residue_numa):
@@ -375,57 +388,33 @@ class ForceFit:
         # return residue
 
 
-class BalCon2(Algorithm):
+class BalCon3(Algorithm):
     """Reference implementation of SerConFF algorithm """
 
     def __init__(self, env: Environment, settings: Settings, targetVM: VM, induced_degree: float = 1, induced_bool: bool=True) -> None:
         super().__init__(env, settings)
         # 计算host和vm的资源
         self.asg = Assignment(env, settings)
-        self.placer = ForceFit(self.asg, induced_degree, induced_bool, max_layer=settings.max_layer)
+        self.placer = ForceFit(self.asg, targetVM, induced_degree, induced_bool, max_layer=settings.max_layer)
         self.debug = False
-        self.coin = Coin()
         self.target_flavor = targetVM
         self.induced_degree = induced_degree
         self.induced_bool = induced_bool
         # 宿主机已占用内存
         self.initial_memory_nh = np.sum(self.asg.occupied_nh_nr, axis=1)[:, 1].copy()
 
-    def clear_host(self, hid: int) -> np.array:
-        vmids = self.asg.get_vmids_on_hid(hid)
-        for vmid in vmids:
-            # 将vm的mapping设置为-1，相当于加入stack。然后重新计算宿主机上的已占用和剩余资源
-            self.asg.exclude(vmid)
-        return vmids
-
-    def choose_hid_to_try2(self, hids: np.array, flavor: VM) -> int:
-        # 计算需求资源
-        required_nh_nr = self.asg.cal_required_nh(flavor)
-
-        local_degree = self.asg.cal_host_required_degree(required_nh_nr[hids], flavor.numa)
-        global_degree = -1*self.asg.cal_host_induced_degree(hids, flavor)
-        degree = self.induced_degree*(global_degree) + (1/self.induced_degree) * local_degree
-        # first_key = np.sum(self.asg.required_nh_nr, axis=1)[hids, Resources.MEM]
-        # second_key = np.sum(self.asg.required_nh_nr, axis=1)[hids, Resources.CPU]
-        return hids[np.argsort(degree)[0]]
-
-    def choose_hid_to_try(self, hids: np.array, numa_num:int) -> int:
-        first_key = self.initial_memory_nh[hids]
-        # first_key = [1] * len(hids)
-
-        # occupied_nh_temp = self.asg.normalize(self.asg.occupied_nh_nr)
-        # res_sum = np.sum(occupied_nh_temp, axis=(0, 1))
-        # weight_sum = (res_sum[Resources.CPU] * occupied_nh_temp[:, :, Resources.CPU] +
-        #           res_sum[Resources.MEM] * occupied_nh_temp[:, :, Resources.MEM]) / sum(res_sum)
+    def choose_hid_to_try(self, hids: np.array) -> int:
+        required_nh_nr = self.asg.cal_required_nh(self.target_flavor)
+        required_nh_nr_temp = self.asg.normalize(required_nh_nr)
+        res_sum = np.sum(required_nh_nr_temp, axis=1)
+        weight_sum = (res_sum[:, Resources.CPU][:, np.newaxis] * required_nh_nr_temp[:, :, Resources.CPU] +
+                  res_sum[:, Resources.MEM][:, np.newaxis] * required_nh_nr_temp[:, :, Resources.MEM]) / np.sum(res_sum, axis=1)[:, np.newaxis]
         # arr_sort = np.sort(weight_sum, axis=1)
-        # if numa_num == 0:
-        #     numa_num = arr_sort.shape[1]
-        # degree = np.sum(arr_sort[:, :numa_num], axis=1)
-        #
-        # second_key = degree[hids]
+        degree = np.sum(weight_sum, axis=1)
 
-        second_key = np.sum(self.asg.occupied_nh_nr, axis=1)[hids, 1]
-        return hids[np.lexsort((second_key, first_key))[0]]
+        second_key = degree[hids]
+        # 需求资源最少的host
+        return hids[np.argsort(second_key)[0]]
 
     def choose_vms_to_try(self, hid: int) -> np.array:
         # 计算需求资源
@@ -440,7 +429,6 @@ class BalCon2(Algorithm):
         vm_flavor = np.sum(vms_normalize * np.array([cpu_impt, mem_impt]), axis=1)
         # vms_normalize[:, Resources.CPU] * cpu_impt + \
         #         vms_normalize[:, Resources.MEM] * mem_impt
-        # 虚机计算投影匹配度，计算虚机得分
 
         target_flavor_norm = self.asg.normalize(np.array([self.target_flavor.cpu, self.target_flavor.mem]))
         smaller_flavor_ids = vm_flavor < np.sum(target_flavor_norm * np.array([cpu_impt, mem_impt]))
@@ -449,16 +437,13 @@ class BalCon2(Algorithm):
         if len(vmids_filter) == 0:
             return []
 
-        # 虚机计算投影，计算虚机得分
-        # 除已经满足需求的numa，虚机对其余numa的影响，选择
+        # 虚机迁移后，判断宿主机上需求资源变化，加权求和，考虑numa
         vm_local_metric = self.placer.cal_vm_local_metric(vmids_filter, required_nh_nr[hid], cpu_impt, mem_impt, self.target_flavor.numa)
-        vm_global_metric = self.placer.cal_vm_induce_metric(hid, vmids_filter, self.target_flavor, cpu_impt, mem_impt)
-        vm_metric = self.induced_degree * vm_global_metric + (1/self.induced_degree) * vm_local_metric
 
         flavor_key = vm_flavor[smaller_flavor_ids]
         migrate_key = (self.asg.init_mapping == self.asg.mapping)[vmids_filter]
         # 对虚机进行排序（优先选择迁过来的虚机）
-        vm_sort_ids = np.lexsort((migrate_key, vm_metric, flavor_key))
+        vm_sort_ids = np.lexsort((migrate_key, vm_local_metric, flavor_key))
         vmids_sort = vmids_filter[vm_sort_ids]
 
         # 按顺序选择虚机，直至覆盖required_nh_nr
@@ -498,10 +483,19 @@ class BalCon2(Algorithm):
             else:
                 residue.append(vmid)
 
+        # 选择的虚机组合要求不超过flavor，相当于剪枝
         candi_degree = np.sum(self.asg.normalize(self.asg.required_nv_nr_all[residue]) * np.array([cpu_impt, mem_impt]))
         target_degree = np.sum(self.asg.normalize(np.array([self.target_flavor.cpu, self.target_flavor.mem]) * np.array([cpu_impt, mem_impt])))
 
+        residue_cpu = np.sum(self.asg.required_nv_nr_all[residue, Resources.CPU])
+        residue_mem = np.sum(self.asg.required_nv_nr_all[residue, Resources.MEM])
+        target_cpu = self.target_flavor.cpu
+        target_mem = self.target_flavor.mem
+
         # 如果虚机组合>flavor，则直接restore，因为从backup到host choose_vm这段里面没有对其他host执行include和exclude
+        # if residue_cpu > target_cpu or residue_mem > target_mem or (
+        #         residue_cpu == target_cpu and residue_mem == target_mem):
+
         if candi_degree > target_degree:
             self.asg.restore()
             return []
@@ -524,7 +518,7 @@ class BalCon2(Algorithm):
             # score = self.asg.compute_score()
             # 根据内存进行排序
             # hid = self.choose_hid_to_try(hosts_to_try, self.target_flavor.numa)
-            hid = self.choose_hid_to_try2(hosts_to_try, self.target_flavor)
+            hid = self.choose_hid_to_try(hosts_to_try)
             hosts_to_try.remove(hid)
             allowed_hids.remove(hid)
             # 把选择的宿主机清空虚机，放到stack里面
@@ -546,6 +540,8 @@ class BalCon2(Algorithm):
                 else:
                     flavor_count_old = flavor_count_new
                     result = AttemptResult.SUCCESS
+                    hosts_to_try.append(hid)
+                    allowed_hids.append(hid)
             else:
                 result = AttemptResult.FAIL
 

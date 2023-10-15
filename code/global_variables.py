@@ -1,10 +1,19 @@
 import numpy as np
 import math
 
-HOST_SIZE = (88, 702 * 1024)
+
+def set_host_num(numa_bool):
+    if numa_bool:
+        return 2
+    else:
+        return 1
+
+NUMA_BOOL = True
+HOST_SIZE = (152, 1006 * 1024)
 FLAVORS_CPU = (1, 2, 4, 6, 8, 12, 16, 24, 32, 64)
 FLAVORS_RATIO = (1, 2, 4)
-HOST_NUMA = 8
+HOST_NUMA = set_host_num(NUMA_BOOL)
+HOST_NUM = 20
 RESOURCE_NUM = 2
 # 判断是2的幂
 assert (HOST_NUMA > 0) and ((HOST_NUMA & (HOST_NUMA - 1)) == 0)
