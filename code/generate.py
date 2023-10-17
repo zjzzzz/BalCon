@@ -26,13 +26,16 @@ def predefined_flavors(numa_bool: bool) -> List[VM]:
                    VM(8, 16*1024, 1), VM(8, 32*1024, 1),
                    VM(16, 32*1024, 1), VM(16, 64*1024, 1),
                    VM(32, 64*1024, 1), VM(32, 128*1024, 1)]
-    # for cpu, ratio, numa in product(FLAVORS_CPU, FLAVORS_RATIO, NUMA):
-    #     if cpu % numa == 0:
-    #         flavor_list.append(VM(cpu, cpu * ratio * 1024, numa))
     if numa_bool:
         flavor_list = flavor_numa_list
     else:
         flavor_list = flavor_no_numa_list
+
+    # flavor_list = []
+    # for cpu, ratio, numa in product(FLAVORS_CPU, FLAVORS_RATIO, NUMA):
+    #     if cpu % numa == 0:
+    #         flavor_list.append(VM(cpu, cpu * ratio * 1024, numa))
+
     return flavor_list
 
 

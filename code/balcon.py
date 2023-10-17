@@ -413,7 +413,7 @@ class BalCon(Algorithm):
         allowed_hids = list(self.asg.hids)
         # 未尝试关机的宿主机id
         hosts_to_try = list(self.asg.hids)
-        # # 使用指定flavor进行填充
+        # 使用指定flavor进行填充
         env_old = copy.deepcopy(self.asg.env)
         env_old.mapping.mapping = copy.deepcopy(self.asg.mapping)
         env_old.mapping.numas = copy.deepcopy(self.asg.numas)

@@ -191,7 +191,7 @@ if __name__ == '__main__':
             else:
                 problem_path = './data/synthetic/{}th-no-numa.json'.format(i)
 
-            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path=problem_path, algorithm=registry['balcon2'], targetVM=flavor, time_limit=1, wa=1, wm=2, max_layer=2, induced_degree=1, induced_bool=True)
+            init_flavor_num, after_flavor_num, migrated_memory, migrated_count = run_example(problem_path=problem_path, algorithm=registry['balcon2'], targetVM=flavor, time_limit=1, wa=1, wm=2, max_layer=1, induced_degree=1, induced_bool=True)
             result.append(
                 [i, 3, flavor.cpu, flavor.mem, flavor.numa, init_flavor_num, after_flavor_num, migrated_memory,
                  migrated_count])
